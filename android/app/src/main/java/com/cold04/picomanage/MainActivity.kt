@@ -645,6 +645,7 @@ private fun FeatureListPage(
         FeatureEntry(
             title = "设备信息",
             description = "查看设备与固件信息",
+            requiredCapabilities = setOf("device.info"),
             icon = { Icon(Icons.Default.Info, contentDescription = null) },
             onClick = onDeviceInfoClick,
         ),

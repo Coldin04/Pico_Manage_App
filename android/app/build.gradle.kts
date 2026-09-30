@@ -5,6 +5,14 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val picobookSdkVersion = providers.gradleProperty("picobookSdkVersion").get()
+
+if (picobookSdkVersion == "local") {
+    configurations.configureEach {
+        resolutionStrategy.cacheChangingModulesFor(0, "seconds")
+    }
+}
+
 val keystoreProperties = Properties().apply {
     val propertiesFile = rootProject.file("keystore.properties")
     if (propertiesFile.isFile) {
@@ -84,7 +92,9 @@ android {
 }
 
 dependencies {
-    implementation("com.cold04:picobookmgr:0.1.0-preview.1")
+    implementation("com.cold04:picobookmgr:$picobookSdkVersion") {
+        isChanging = picobookSdkVersion == "local"
+    }
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")

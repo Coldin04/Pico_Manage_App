@@ -15,6 +15,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.io.File
 import uniffi.picobook_sdk.SdkDeviceClient
+import uniffi.picobook_sdk.SdkDeviceInfoField
 import uniffi.picobook_sdk.SdkDeviceProfile
 import uniffi.picobook_sdk.SdkFileLocation
 import uniffi.picobook_sdk.SdkFileEntry
@@ -139,6 +140,10 @@ object DeviceSessions {
 
     suspend fun listFiles(location: SdkFileLocation): List<SdkFileEntry> = withContext(Dispatchers.IO) {
         withDeviceClient("files.list") { it.listFiles(location) }
+    }
+
+    suspend fun deviceInfo(): List<SdkDeviceInfoField> = withContext(Dispatchers.IO) {
+        withDeviceClient("device.info") { it.deviceInfo() }
     }
 
     suspend fun deleteFile(path: String) = modify("files.delete") { it.delete(path) }
