@@ -4,9 +4,9 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,12 +20,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.UploadFile
@@ -34,8 +42,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -66,6 +72,8 @@ import uniffi.picobook_sdk.SdkFileKind
 import uniffi.picobook_sdk.SdkFileLocation
 
 enum class FileBrowserMode { Browse, SelectDirectory }
+
+private data class DirectoryListing(val directory: String?, val entries: List<SdkFileEntry>)
 
 /** Shared directory/file presentation for management and future upload destination selection. */
 @Composable
@@ -121,14 +129,28 @@ fun DeviceFileBrowser(
             else -> LazyColumn(Modifier.weight(1f)) {
                 items(entries, key = { it.path }) { entry ->
                     val directory = entry.kind == SdkFileKind.DIRECTORY
+                    val canSelectEntry = onEntryLongPress != null && when {
+                        capabilities.contains("files.move") || capabilities.contains("files.rename") ||
+                            capabilities.contains("files.delete") -> true
+                        !directory && capabilities.contains("files.download") -> true
+                        else -> false
+                    }
                     ListItem(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             enabled = actionsEnabled,
                             onClick = {
-                                if (selectedEntryPath != null) onClearSelection()
-                                else if (directory) onOpenDirectory(entry)
+                                when {
+                                    selectedEntryPath != null && directory -> {
+                                        onClearSelection()
+                                        onOpenDirectory(entry)
+                                    }
+                                    selectedEntryPath == entry.path -> onClearSelection()
+                                    selectedEntryPath != null && canSelectEntry -> onEntryLongPress?.invoke(entry)
+                                    directory -> onOpenDirectory(entry)
+                                    else -> Unit
+                                }
                             },
-                            onLongClick = { onEntryLongPress?.invoke(entry) },
+                            onLongClick = { if (canSelectEntry) onEntryLongPress?.invoke(entry) },
                         ),
                         colors = ListItemDefaults.colors(
                             containerColor = if (highlightedEntryPath == entry.path) {
@@ -137,7 +159,7 @@ fun DeviceFileBrowser(
                         ),
                         leadingContent = {
                             Icon(
-                                if (directory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                if (directory) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
                                 contentDescription = null,
                                 tint = if (mode == FileBrowserMode.SelectDirectory && !directory) {
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
@@ -160,8 +182,16 @@ fun DeviceFileBrowser(
                                 ),
                             )
                         },
+                        trailingContent = if (directory) {
+                            {
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else null,
                     )
-                    HorizontalDivider()
                 }
             }
         }
@@ -211,10 +241,14 @@ fun FileManagementPage(
     val scope = rememberCoroutineScope()
     var directoryStack by remember(active?.saved?.id) { mutableStateOf(emptyList<String>()) }
     val directory = directoryStack.lastOrNull()
+    var navigatingForward by remember(active?.saved?.id) { mutableStateOf(true) }
     fun navigateUp() {
-        directoryStack = directoryStack.dropLast(1)
+        if (directoryStack.isNotEmpty()) {
+            navigatingForward = false
+            directoryStack = directoryStack.dropLast(1)
+        }
     }
-    var entries by remember(active?.saved?.id) { mutableStateOf(emptyList<SdkFileEntry>()) }
+    var listing by remember(active?.saved?.id) { mutableStateOf(DirectoryListing(null, emptyList())) }
     var loading by remember { mutableStateOf(false) }
     var operationBusy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -223,6 +257,7 @@ fun FileManagementPage(
     var dialogValue by remember { mutableStateOf("") }
     var selectedEntry by remember(active?.saved?.id) { mutableStateOf<SdkFileEntry?>(null) }
     var selectionMenuExpanded by remember { mutableStateOf(false) }
+    var fileActionsExpanded by remember(active?.saved?.id) { mutableStateOf(false) }
     var movingEntry by remember(active?.saved?.id) { mutableStateOf<SdkFileEntry?>(null) }
     var downloadEntry by remember { mutableStateOf<SdkFileEntry?>(null) }
     var pendingUploadReview by remember { mutableStateOf<BookUploadReview?>(null) }
@@ -276,13 +311,20 @@ fun FileManagementPage(
 
     fun refresh() {
         if (!isVisible || active == null || !active.profile.capabilities.contains("files.list")) return
+        val requestedDirectory = directory
         scope.launch {
             loading = true
             error = null
             reconnectToDevice = false
             try {
-                entries = DeviceSessions.listFiles(directory?.let(SdkFileLocation::Directory) ?: SdkFileLocation.Root)
+                val updatedEntries = DeviceSessions.listFiles(
+                    requestedDirectory?.let(SdkFileLocation::Directory) ?: SdkFileLocation.Root,
+                )
+                listing = DirectoryListing(requestedDirectory, updatedEntries)
             } catch (cause: Exception) {
+                if (listing.directory != requestedDirectory) {
+                    listing = DirectoryListing(requestedDirectory, emptyList())
+                }
                 error = DeviceSessions.describeOperationFailure(cause, "读取文件列表")
                 reconnectToDevice = DeviceSessions.isConnectionFailure(cause)
             } finally {
@@ -323,6 +365,9 @@ fun FileManagementPage(
         ) refresh()
     }
 
+    BackHandler(enabled = isVisible && fileActionsExpanded) {
+        fileActionsExpanded = false
+    }
     BackHandler(enabled = isVisible) {
         when {
             selectedEntry != null -> selectedEntry = null
@@ -335,7 +380,7 @@ fun FileManagementPage(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(directory?.substringAfterLast('/')?.ifEmpty { "文件管理" } ?: "文件管理")
+                    Text(selectedEntry?.name ?: directory?.substringAfterLast('/')?.ifEmpty { "文件管理" } ?: "文件管理")
                 },
                 navigationIcon = {
                     if (selectedEntry != null || directory != null) {
@@ -402,15 +447,6 @@ fun FileManagementPage(
                             Icon(Icons.Default.ContentPaste, contentDescription = "粘贴到此目录")
                         }
                     } else {
-                        if (active != null && capabilities.contains("files.upload")) {
-                            IconButton(onClick = pickBooks, enabled = !uploadProgress.running) {
-                                Icon(
-                                    Icons.Default.UploadFile,
-                                    contentDescription = "上传文件",
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
                         if (directory == null) DeviceConnectionControl(connectedDeviceCount, onDevicesClick)
                     }
                 },
@@ -419,70 +455,124 @@ fun FileManagementPage(
     ) { innerPadding ->
         Column(Modifier.fillMaxSize().padding(innerPadding)) {
             Box(Modifier.fillMaxSize().weight(1f)) {
-            when {
-                active == null -> Text(
-                    "设备未连接",
-                    Modifier.align(Alignment.Center),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                !capabilities.contains("files.list") -> Column(
-                    Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Box(Modifier.fillMaxWidth().height(200.dp)) { FileListSkeleton() }
-                    Text("设备不支持文件管理", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                else -> {
-            DeviceFileBrowser(
-                entries = entries.filterNot { candidate ->
-                    candidate.kind == SdkFileKind.DIRECTORY && movingEntry?.kind == SdkFileKind.DIRECTORY &&
-                        isStrictDescendant(movingEntry!!.path, candidate.path)
-                },
-                currentDirectory = directory,
-                loading = loading,
-                error = error,
-                capabilities = capabilities,
-                actionsEnabled = !operationBusy && !uploadProgress.running,
-                showCurrentDirectoryHeader = false,
-                selectedEntryPath = selectedEntry?.path,
-                highlightedEntryPath = selectedEntry?.path ?: movingEntry?.path,
-                onEntryLongPress = if (movingEntry == null) ({ selectedEntry = it }) else null,
-                onClearSelection = { selectedEntry = null },
-                onOpenDirectory = {
-                    if (movingEntry == null || !isSameOrDescendant(movingEntry!!.path, it.path)) {
-                        selectedEntry = null
-                        directoryStack = directoryStack + it.path
+                when {
+                    active == null -> Text(
+                        "设备未连接",
+                        Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    !capabilities.contains("files.list") -> Column(
+                        Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box(Modifier.fillMaxWidth().height(200.dp)) { FileListSkeleton() }
+                        Text("设备不支持文件管理", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                },
-                onNavigateUp = ::navigateUp,
-                onRename = { entry ->
-                    dialogValue = entry.name
-                    pendingAction = PendingFileAction.Rename(entry)
-                },
-                onDelete = { entry -> pendingAction = PendingFileAction.Delete(entry) },
-                onMove = { movingEntry = it; selectedEntry = null },
-                onDownload = { entry ->
-                    downloadEntry = entry
-                    downloadPicker.launch(entry.name)
-                },
-            )
-            if (capabilities.contains("directories.create")) {
-                FloatingActionButton(
-                    onClick = { if (!operationBusy && !uploadProgress.running) { dialogValue = ""; pendingAction = PendingFileAction.CreateDirectory } },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-                ) { Icon(Icons.Default.Add, contentDescription = "新建目录") }
+                    else -> {
+                        AnimatedContent(
+                            targetState = listing,
+                            transitionSpec = {
+                                val direction = if (navigatingForward) 1 else -1
+                                (slideInHorizontally { direction * it } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { -direction * it } + fadeOut())
+                            },
+                            contentKey = { it.directory },
+                            label = "file-directory-transition",
+                        ) { page ->
+                            DeviceFileBrowser(
+                                entries = page.entries.filterNot { candidate ->
+                                    candidate.kind == SdkFileKind.DIRECTORY && movingEntry?.kind == SdkFileKind.DIRECTORY &&
+                                        isStrictDescendant(movingEntry!!.path, candidate.path)
+                                },
+                                currentDirectory = page.directory,
+                                loading = loading,
+                                error = error,
+                                capabilities = capabilities,
+                                actionsEnabled = !operationBusy && !uploadProgress.running,
+                                showCurrentDirectoryHeader = false,
+                                selectedEntryPath = selectedEntry?.path,
+                                highlightedEntryPath = selectedEntry?.path ?: movingEntry?.path,
+                                onEntryLongPress = if (movingEntry == null) {
+                                    { entry ->
+                                        fileActionsExpanded = false
+                                        selectionMenuExpanded = false
+                                        selectedEntry = entry
+                                    }
+                                } else null,
+                                onClearSelection = {
+                                    selectedEntry = null
+                                    selectionMenuExpanded = false
+                                },
+                                onOpenDirectory = {
+                                    if (movingEntry == null || !isSameOrDescendant(movingEntry!!.path, it.path)) {
+                                        fileActionsExpanded = false
+                                        navigatingForward = true
+                                        selectedEntry = null
+                                        directoryStack = directoryStack + it.path
+                                    }
+                                },
+                                onNavigateUp = ::navigateUp,
+                                onRename = { entry ->
+                                    dialogValue = entry.name
+                                    pendingAction = PendingFileAction.Rename(entry)
+                                },
+                                onDelete = { entry -> pendingAction = PendingFileAction.Delete(entry) },
+                                onMove = { movingEntry = it; selectedEntry = null },
+                                onDownload = { entry ->
+                                    downloadEntry = entry
+                                    downloadPicker.launch(entry.name)
+                                },
+                            )
+                        }
+                    }
+                }
+                if (active != null && selectedEntry == null && movingEntry == null &&
+                    !operationBusy && !uploadProgress.running &&
+                    (capabilities.contains("files.upload") || capabilities.contains("directories.create"))
+                ) {
+                    SpeedDialMenu(
+                        expanded = fileActionsExpanded,
+                        onExpandedChange = { fileActionsExpanded = it },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                        actions = buildList {
+                            if (capabilities.contains("directories.create")) {
+                                add(
+                                    SpeedDialAction(
+                                        label = "新建文件夹",
+                                        icon = Icons.Default.CreateNewFolder,
+                                        onClick = {
+                                            fileActionsExpanded = false
+                                            dialogValue = ""
+                                            pendingAction = PendingFileAction.CreateDirectory
+                                        },
+                                    ),
+                                )
+                            }
+                            if (capabilities.contains("files.upload")) {
+                                add(
+                                    SpeedDialAction(
+                                        label = "上传文件",
+                                        icon = Icons.Default.UploadFile,
+                                        onClick = {
+                                            fileActionsExpanded = false
+                                            pickBooks()
+                                        },
+                                    ),
+                                )
+                            }
+                        },
+                        buttonContentDescription = "打开文件操作",
+                    )
+                }
+                if (uploadProgress.running) {
+                    BookUploadStatus(
+                        Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
+                    )
                 }
             }
-            }
-            if (uploadProgress.running) {
-                BookUploadStatus(
-                    Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
-                )
-            }
         }
-            }
-        }
+    }
 
     pendingUploadReview?.let { review ->
         BookUploadReviewDialog(

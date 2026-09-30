@@ -25,6 +25,12 @@
             android:name=".WifiManagementActivity"
             android:exported="false" />
         <activity
+            android:name=".SettingsManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DeviceInformationActivity"
+            android:exported="false" />
+        <activity
             android:name=".FontManagementActivity"
             android:exported="false" />
         <activity

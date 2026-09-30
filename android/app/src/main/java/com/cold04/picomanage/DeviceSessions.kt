@@ -27,6 +27,8 @@ import uniffi.picobook_sdk.SdkWifiNetwork
 import uniffi.picobook_sdk.SdkFontCatalog
 import uniffi.picobook_sdk.SdkOpdsCredential
 import uniffi.picobook_sdk.SdkOpdsServer
+import uniffi.picobook_sdk.SdkSettingsSnapshot
+import uniffi.picobook_sdk.SdkSettingChange
 import java.util.UUID
 
 data class SavedDevice(val id: String, val deviceType: String, val address: String)
@@ -209,6 +211,17 @@ object DeviceSessions {
 
     suspend fun listOpdsServers(): List<SdkOpdsServer> = withContext(Dispatchers.IO) {
         withDeviceClient("opds.list") { it.listOpdsServers() }
+    }
+
+    suspend fun listSettings(): SdkSettingsSnapshot = withContext(Dispatchers.IO) {
+        withDeviceClient("settings.list") { it.listSettings() }
+    }
+
+    suspend fun applySettings(
+        expected: SdkSettingsSnapshot,
+        changes: List<SdkSettingChange>,
+    ): SdkSettingsSnapshot = withContext(Dispatchers.IO) {
+        withDeviceClient("settings.update") { it.applySettings(expected, changes) }
     }
 
     suspend fun saveOpdsServer(credential: SdkOpdsCredential) = modify("opds.save") {
