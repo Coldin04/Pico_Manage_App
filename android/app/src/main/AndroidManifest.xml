@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <application
+        android:allowBackup="true"
+        android:usesCleartextTraffic="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PicoManage">
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DeviceActivity"
+            android:exported="false" />
+        <activity
+            android:name=".WifiManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".FontManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".OpdsManagementActivity"
+            android:exported="false" />
+        <activity
+            android:name=".OpdsEditorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".UploadDirectoryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".FirmwareUpdateActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PicoManage">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name=".PushToReader"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="@string/push_to_reader">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.epub" />
+                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.epub" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.mobi" />
+                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.mobi" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.bin" />
+                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.bin" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="*/*" android:pathPattern=".*\\.txt" />
+                <data android:scheme="file" android:mimeType="*/*" android:pathPattern=".*\\.txt" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+
+</manifest>

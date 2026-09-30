@@ -1,0 +1,10 @@
+/local/crossmux_mock/
+.DS_Store
+
+# Generated Android release artifacts
+*.apk
+*.aab
+android/app/release/
+
+# Locally supplied SDK binaries
+android/app/src/main/jniLibs/**/*.so
