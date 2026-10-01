@@ -17,7 +17,7 @@ if [[ ! "$sdk_version" =~ ^git\.([0-9a-f]{40})$ ]]; then
     exit 2
 fi
 commit_sha="${BASH_REMATCH[1]}"
-sdk_repository="${PICOBOOK_SDK_REPOSITORY:-https://github.com/Coldin04/PicoBook_SDK.git}"
+sdk_repository="${INKREADERLINK_SDK_REPOSITORY:-https://github.com/Coldin04/InkReaderLink.git}"
 
 if ! command -v git >/dev/null 2>&1; then
     printf '%s\n' 'Git is required to build an SDK git version.' >&2
@@ -43,7 +43,7 @@ else
     exit 1
 fi
 
-temp_root="$(mktemp -d "${TMPDIR:-/tmp}/picobook-sdk-git.XXXXXX")"
+temp_root="$(mktemp -d "${TMPDIR:-/tmp}/inkreaderlink-sdk-git.XXXXXX")"
 cleanup() {
     rm -rf "$temp_root"
 }
@@ -64,6 +64,6 @@ fi
 bash "$sdk_checkout/scripts/build-android-sdk.sh"
 "${gradle_cmd[@]}" -p "$sdk_checkout/android-sdk" publishToMavenLocal "-PsdkVersion=$sdk_version"
 
-printf '\nInstalled com.cold04:picobookmgr:%s into mavenLocal().\n' "$sdk_version"
+printf '\nInstalled com.cold04:inkreaderlink-uniffi:%s into mavenLocal().\n' "$sdk_version"
 printf 'SDK repository: %s\n' "$sdk_repository"
 printf 'SDK commit: %s\n' "$resolved_sha"

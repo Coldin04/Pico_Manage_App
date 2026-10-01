@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,13 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkSettingChange
-import uniffi.picobook_sdk.SdkSettingDescriptor
-import uniffi.picobook_sdk.SdkSettingKind
-import uniffi.picobook_sdk.SdkSettingValue
-import uniffi.picobook_sdk.SdkSettingsSnapshot
+import uniffi.inkreaderlink_uniffi.SdkSettingChange
+import uniffi.inkreaderlink_uniffi.SdkSettingDescriptor
+import uniffi.inkreaderlink_uniffi.SdkSettingKind
+import uniffi.inkreaderlink_uniffi.SdkSettingValue
+import uniffi.inkreaderlink_uniffi.SdkSettingsSnapshot
 
 class SettingsManagementActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

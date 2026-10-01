@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.content.Context
 import android.content.Intent
@@ -55,9 +55,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
-import uniffi.picobook_sdk.SdkDeviceProfile
-import uniffi.picobook_sdk.SdkFileEntry
-import uniffi.picobook_sdk.SdkFileLocation
+import uniffi.inkreaderlink_uniffi.SdkDeviceProfile
+import uniffi.inkreaderlink_uniffi.SdkFileEntry
+import uniffi.inkreaderlink_uniffi.SdkFileLocation
 import java.util.Locale
 
 data class BookUploadFile(val uri: Uri, val name: String, val contentType: String?)
@@ -212,7 +212,7 @@ object BookUploadQueue {
                 }
             } catch (cause: Exception) {
                 val message = DeviceSessions.describeUploadFailure(cause)
-                Log.e("PicoUpload", "Upload batch failed before completing: $message", cause)
+                Log.e("InkReaderUpload", "Upload batch failed before completing: $message", cause)
                 mutableState.update {
                     it.copy(
                         running = false,
@@ -235,7 +235,7 @@ object BookUploadQueue {
                         ).show()
                     }
                 } catch (cause: Exception) {
-                    Log.w("PicoUpload", "Upload succeeded but completion notification failed", cause)
+                    Log.w("InkReaderUpload", "Upload succeeded but completion notification failed", cause)
                 }
             }
         }

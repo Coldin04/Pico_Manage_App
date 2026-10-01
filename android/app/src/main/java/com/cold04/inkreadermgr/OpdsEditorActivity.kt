@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.app.Activity
 import android.content.Context
@@ -43,10 +43,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkOpdsCredential
-import uniffi.picobook_sdk.SdkOpdsServer
+import uniffi.inkreaderlink_uniffi.SdkOpdsCredential
+import uniffi.inkreaderlink_uniffi.SdkOpdsServer
 
 class OpdsEditorActivity : ComponentActivity() {
     companion object {

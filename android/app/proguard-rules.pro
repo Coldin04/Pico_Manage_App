@@ -20,7 +20,7 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
--keep class uniffi.picobook_sdk.** { *; }
+-keep class uniffi.inkreaderlink_uniffi.** { *; }
 -keep class com.sun.jna.** { *; }
 -keep class com.google.mlkit.common.internal.CommonComponentRegistrar { public <init>(); }
 -keep class com.google.mlkit.vision.barcode.internal.BarcodeRegistrar { public <init>(); }

@@ -23,8 +23,8 @@ jobs:
         id: sdk-version
         shell: bash
         run: |
-          sdk_version="$(sed -n 's/^picobookSdkVersion=//p' android/gradle.properties | tail -n 1)"
-          [[ -n "$sdk_version" ]] || { echo "picobookSdkVersion is missing from android/gradle.properties" >&2; exit 1; }
+          sdk_version="$(sed -n 's/^inkreaderlinkSdkVersion=//p' android/gradle.properties | tail -n 1)"
+          [[ -n "$sdk_version" ]] || { echo "inkreaderlinkSdkVersion is missing from android/gradle.properties" >&2; exit 1; }
           if [[ "$sdk_version" =~ ^git\.([0-9a-f]{40})$ ]]; then
             echo "source=git" >> "$GITHUB_OUTPUT"
             echo "commit=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
@@ -38,11 +38,11 @@ jobs:
             echo "source=maven" >> "$GITHUB_OUTPUT"
             echo "commit=" >> "$GITHUB_OUTPUT"
           else
-            echo "Unsupported PicoBook SDK version: $sdk_version" >&2
+            echo "Unsupported InkReaderLink version: $sdk_version" >&2
             exit 1
           fi
           echo "version=$sdk_version" >> "$GITHUB_OUTPUT"
-          echo "Using PicoBook SDK $sdk_version"
+          echo "Using InkReaderLink $sdk_version"
 
       - uses: actions/setup-java@v4
         with:
@@ -69,8 +69,8 @@ jobs:
         id: sdk-cache
         uses: actions/cache@v4
         with:
-          path: ~/.m2/repository/com/cold04/picobookmgr/${{ steps.sdk-version.outputs.version }}
-          key: picobook-sdk-aar-v1-ndk27.2-uniffi0.32.2-${{ steps.sdk-version.outputs.commit }}
+          path: ~/.m2/repository/com/cold04/inkreaderlink-uniffi/${{ steps.sdk-version.outputs.version }}
+          key: inkreaderlink-sdk-aar-v1-ndk27.2-uniffi0.32.2-${{ steps.sdk-version.outputs.commit }}
 
       - name: Install Android NDK for SDK source build
         if: steps.sdk-version.outputs.source == 'git' && steps.sdk-cache.outputs.cache-hit != 'true'
@@ -87,7 +87,7 @@ jobs:
       - name: Build and install SDK source into Maven local
         if: steps.sdk-version.outputs.source == 'git' && steps.sdk-cache.outputs.cache-hit != 'true'
         env:
-          PICOBOOK_SDK_REPOSITORY: ${{ vars.PICOBOOK_SDK_REPOSITORY || 'https://github.com/Coldin04/PicoBook_SDK.git' }}
+          INKREADERLINK_SDK_REPOSITORY: ${{ vars.INKREADERLINK_SDK_REPOSITORY || 'https://github.com/Coldin04/InkReaderLink.git' }}
         run: ./scripts/install-sdk-from-git.sh "${{ steps.sdk-version.outputs.version }}"
 
       - name: Validate tag and set app version
@@ -161,7 +161,7 @@ jobs:
           SDK_VERSION: ${{ steps.sdk-version.outputs.version }}
           SDK_SOURCE: ${{ steps.sdk-version.outputs.source }}
           SDK_COMMIT: ${{ steps.sdk-version.outputs.commit }}
-          PICOBOOK_SDK_REPOSITORY: ${{ vars.PICOBOOK_SDK_REPOSITORY || 'https://github.com/Coldin04/PicoBook_SDK.git' }}
+          INKREADERLINK_SDK_REPOSITORY: ${{ vars.INKREADERLINK_SDK_REPOSITORY || 'https://github.com/Coldin04/InkReaderLink.git' }}
         run: |
           mkdir -p dist
           for abi in arm64-v8a armeabi-v7a x86_64 universal; do
@@ -169,6 +169,10 @@ jobs:
             test -s "$apk"
             "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify "$apk"
             badging="$("$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging "$apk" | head -1)"
+            [[ "$badging" == *"package: name='com.cold04.inkreadermgr'"* ]] || {
+              echo "Unexpected applicationId in $apk: $badging" >&2
+              exit 1
+            }
             [[ "$badging" == *"versionCode='$APP_VERSION_CODE' versionName='$APP_VERSION_NAME'"* ]]
             native_abis="$(unzip -Z1 "$apk" | awk -F/ '/^lib\// { print $2 }' | sort -u | paste -sd, -)"
             if [[ "$abi" == universal ]]; then
@@ -181,9 +185,9 @@ jobs:
           {
             echo "App release tag: $RELEASE_TAG"
             echo "App commit: $(git rev-parse HEAD)"
-            echo "SDK coordinate: com.cold04:picobookmgr:$SDK_VERSION"
+            echo "SDK coordinate: com.cold04:inkreaderlink-uniffi:$SDK_VERSION"
             if [[ "$SDK_SOURCE" == git ]]; then
-              echo "SDK repository: ${PICOBOOK_SDK_REPOSITORY:-https://github.com/Coldin04/PicoBook_SDK.git}"
+              echo "SDK repository: ${INKREADERLINK_SDK_REPOSITORY:-https://github.com/Coldin04/InkReaderLink.git}"
               echo "SDK commit: $SDK_COMMIT"
             else
               echo "SDK source: Maven Central"

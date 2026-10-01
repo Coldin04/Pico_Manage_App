@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.net.Uri
 import android.os.Bundle
@@ -45,10 +45,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkFontCatalog
-import uniffi.picobook_sdk.SdkFontFamily
+import uniffi.inkreaderlink_uniffi.SdkFontCatalog
+import uniffi.inkreaderlink_uniffi.SdkFontFamily
 
 class FontManagementActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

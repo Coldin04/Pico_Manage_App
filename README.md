@@ -4,7 +4,7 @@ Copyright (C) 2026 Coldin04
 
 Pico Manager 是一款用于管理可供 Pico、Crosspoint 等第三方固件使用的图书文件的应用。
 
-本项目使用独立的 PicoBook SDK（Rust crate：`picobook_sdk`；Android 库：`com.cold04:picobookmgr`）管理兼容设备和图书内容。
+本项目使用独立的 InkReaderLink device bridge（核心 crate：`inkreaderlink-core`；Android UniFFI 库：`com.cold04:inkreaderlink-uniffi`）管理兼容设备和图书内容。
 
 ## 兼容性声明
 
@@ -19,6 +19,8 @@ Pico Manager 是一款用于管理可供 Pico、Crosspoint 等第三方固件使
 
 ## Android release 签名
 
+Android `applicationId` 和 `namespace` 为 `com.cold04.inkreadermgr`。旧预览版使用不同 ID，不能原位升级。
+
 本地 release 构建读取 `android/keystore.properties` 指定的密钥；CI 可通过环境变量提供同一套签名信息。
 
 本地 debug 和 release APK 使用同一签名及 `applicationId`，以便在版本号允许时互相覆盖安装。Play App Signing 分发的安装包可能使用不同于本地上传密钥的证书，不能据此保证与本地 debug 包互相覆盖。
@@ -31,20 +33,24 @@ Pico Manager 是一款用于管理可供 Pico、Crosspoint 等第三方固件使
 
 每次发布包含 `arm64-v8a`、`armeabi-v7a`、`x86_64` 和通用 APK，以及 `SHA256SUMS.txt`。工作流会在上传前核对全部 APK 的签名、版本号和 SHA-256 校验值。
 
-## Android PicoBook SDK 依赖与开发
+## Android 提交检查
 
-App 使用独立的 **PicoBook SDK** Android 库 `com.cold04:picobookmgr`，并通过 `android/gradle.properties` 中的 `picobookSdkVersion` 固定其版本。版本形式决定 SDK 来源：
+push 和 Pull Request 会按固定 SDK commit 构建或缓存 InkReaderLink AAR，运行 Android 单元测试并组装 debug APK；同时检查 APK 的 applicationId 和 InkReaderLink 原生库。该工作流不签名、不创建 Release。
+
+## Android InkReaderLink 依赖与开发
+
+App 使用独立的 **InkReaderLink** Android 库 `com.cold04:inkreaderlink-uniffi`，并通过 `android/gradle.properties` 中的 `inkreaderlinkSdkVersion` 固定其版本。版本形式决定 SDK 来源：
 
 下表中的版本号仅为格式示例，不代表当前或已发布版本。
 
 | 版本形式 | 来源与用途 |
 | --- | --- |
 | `0.2.0`、`0.2.0-preview.3` | 从 Maven Central 获取已发布版本。 |
-| `git.<完整40位commit SHA>` | 按 PicoBook SDK 仓库中的指定 commit 构建。GitHub 发布工作流会拉取该 commit、构建 AAR 并缓存到 CI 的 Maven 本地仓库，再构建 App。 |
+| `git.<完整40位commit SHA>` | 按 InkReaderLink 仓库中的指定 commit 构建。GitHub 发布工作流会拉取该 commit、构建 AAR 并缓存到 CI 的 Maven 本地仓库，再构建 App。 |
 | `local` | 从开发者机器的 `mavenLocal()` 获取。GitHub 发布工作流会拒绝此版本。 |
 
-普通版本可直接用于 App 的 CI 发布。使用 `git.<SHA>` 时，App 的 Draft Release 会附带 `BUILD-INFO.txt`，记录 App commit、PicoBook SDK 坐标和 SDK commit。SDK AAR 缓存按完整 SDK SHA 及工具链缓存键保存；SHA 改变时会自动构建新产物，不需要手工清缓存。
+普通版本可直接用于 App 的 CI 发布。使用 `git.<SHA>` 时，App 的 Draft Release 会附带 `BUILD-INFO.txt`，记录 App commit、InkReaderLink 坐标和 SDK commit。SDK AAR 缓存按完整 SDK SHA 及工具链缓存键保存；SHA 改变时会自动构建新产物，不需要手工清缓存。
 
-SDK 仓库位置可通过 `PICOBOOK_SDK_REPOSITORY` 配置，默认值为 `https://github.com/Coldin04/PicoBook_SDK.git`。本地 shell 环境和 App GitHub 仓库的 Actions Variables 都可设置该变量以使用 fork 或镜像。
+SDK 仓库位置可通过 `INKREADERLINK_SDK_REPOSITORY` 配置，默认值为 `https://github.com/Coldin04/InkReaderLink.git`。本地 shell 环境和 App GitHub 仓库的 Actions Variables 都可设置该变量以使用 fork 或镜像。
 
-本地构建的 `local` 与 `git.<SHA>` 产物都必须先存在于 `mavenLocal()`；普通版本只从 Maven Central 解析。版本属性位于 `android/gradle.properties`，PicoBook SDK 本地构建和发布命令见 SDK 仓库 README 的“SDK 引用指南”。
+本地构建的 `local` 与 `git.<SHA>` 产物都必须先存在于 `mavenLocal()`；普通版本只从 Maven Central 解析。版本属性位于 `android/gradle.properties`，InkReaderLink 本地构建和发布命令见 SDK 仓库 README 的“SDK 引用指南”。

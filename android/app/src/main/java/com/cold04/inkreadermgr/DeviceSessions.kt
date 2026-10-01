@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.content.Context
 import android.net.Uri
@@ -14,22 +14,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.io.File
-import uniffi.picobook_sdk.SdkDeviceClient
-import uniffi.picobook_sdk.SdkDeviceInfoField
-import uniffi.picobook_sdk.SdkDeviceProfile
-import uniffi.picobook_sdk.SdkFileLocation
-import uniffi.picobook_sdk.SdkFileEntry
-import uniffi.picobook_sdk.SdkConflictPolicy
-import uniffi.picobook_sdk.SdkUploadOptions
-import uniffi.picobook_sdk.SdkUploadProgressObserver
-import uniffi.picobook_sdk.SdkOperationException
-import uniffi.picobook_sdk.SdkWifiCredential
-import uniffi.picobook_sdk.SdkWifiNetwork
-import uniffi.picobook_sdk.SdkFontCatalog
-import uniffi.picobook_sdk.SdkOpdsCredential
-import uniffi.picobook_sdk.SdkOpdsServer
-import uniffi.picobook_sdk.SdkSettingsSnapshot
-import uniffi.picobook_sdk.SdkSettingChange
+import uniffi.inkreaderlink_uniffi.SdkDeviceClient
+import uniffi.inkreaderlink_uniffi.SdkDeviceInfoField
+import uniffi.inkreaderlink_uniffi.SdkDeviceProfile
+import uniffi.inkreaderlink_uniffi.SdkFileLocation
+import uniffi.inkreaderlink_uniffi.SdkFileEntry
+import uniffi.inkreaderlink_uniffi.SdkConflictPolicy
+import uniffi.inkreaderlink_uniffi.SdkUploadOptions
+import uniffi.inkreaderlink_uniffi.SdkUploadProgressObserver
+import uniffi.inkreaderlink_uniffi.SdkOperationException
+import uniffi.inkreaderlink_uniffi.SdkWifiCredential
+import uniffi.inkreaderlink_uniffi.SdkWifiNetwork
+import uniffi.inkreaderlink_uniffi.SdkFontCatalog
+import uniffi.inkreaderlink_uniffi.SdkOpdsCredential
+import uniffi.inkreaderlink_uniffi.SdkOpdsServer
+import uniffi.inkreaderlink_uniffi.SdkSettingsSnapshot
+import uniffi.inkreaderlink_uniffi.SdkSettingChange
 import java.util.UUID
 
 data class SavedDevice(val id: String, val deviceType: String, val address: String)
@@ -191,7 +191,7 @@ object DeviceSessions {
                         else "设备支持的字体文件类型：$accepted",
                     )
                 }
-                val temporary = File.createTempFile("pico-font-", ".$extension", context.cacheDir)
+                val temporary = File.createTempFile("inkreader-font-", ".$extension", context.cacheDir)
                 try {
                     val input = context.contentResolver.openInputStream(uri)
                         ?: throw IOException("无法读取字体文件")
@@ -252,7 +252,7 @@ object DeviceSessions {
             val canChooseDirectory = profile.capabilities.contains("upload.target-directory") &&
                 profile.constraints.canChooseUploadDirectory
             val uploadLocation = if (canChooseDirectory) location else SdkFileLocation.Root
-            Log.i("PicoUpload", "Starting batch: count=${files.size}, location=$uploadLocation, websocket=$supportsWebsocket")
+            Log.i("InkReaderUpload", "Starting batch: count=${files.size}, location=$uploadLocation, websocket=$supportsWebsocket")
             val acceptedExtensions = profile.fileFormats.uploadExtensions.map {
                 it.trim().removePrefix(".").lowercase(java.util.Locale.ROOT)
             }.toSet()
@@ -274,7 +274,7 @@ object DeviceSessions {
                 var temporary: File? = null
                 var stage = "创建临时缓存"
                 try {
-                    val cacheFile = File.createTempFile("pico-upload-", ".tmp", context.cacheDir)
+                    val cacheFile = File.createTempFile("inkreader-upload-", ".tmp", context.cacheDir)
                     temporary = cacheFile
                     stage = "读取所选文件"
                     val input = context.contentResolver.openInputStream(file.uri)
@@ -283,7 +283,7 @@ object DeviceSessions {
                         cacheFile.outputStream().buffered().use { destination -> source.copyTo(destination, 64 * 1024) }
                     }
                     stage = "SDK 上传"
-                    Log.i("PicoUpload", "Calling SDK upload: name=${file.name}, bytes=${cacheFile.length()}, location=$uploadLocation")
+                    Log.i("InkReaderUpload", "Calling SDK upload: name=${file.name}, bytes=${cacheFile.length()}, location=$uploadLocation")
                     val observer = if (supportsWebsocket) object : SdkUploadProgressObserver {
                         override fun onProgress(sentBytes: ULong, totalBytes: ULong) {
                             onProgress(index, file, sentBytes, totalBytes)
@@ -307,7 +307,7 @@ object DeviceSessions {
                     } catch (cause: SdkOperationException.Unsupported) {
                         upload(SdkConflictPolicy.REPLACE_WITH_BACKUP)
                     }
-                    Log.i("PicoUpload", "SDK upload succeeded: name=${file.name}")
+                    Log.i("InkReaderUpload", "SDK upload succeeded: name=${file.name}")
                     BookUploadOutcome(file.name, true)
                 } catch (cause: CancellationException) {
                     throw cause
@@ -315,7 +315,7 @@ object DeviceSessions {
                     val reconnectRequired = isConnectionFailure(cause)
                     connectionFailure = connectionFailure || reconnectRequired
                     val reason = describeUploadFailure(cause)
-                    Log.e("PicoUpload", "Upload failed at stage=$stage: name=${file.name}, reason=$reason", cause)
+                    Log.e("InkReaderUpload", "Upload failed at stage=$stage: name=${file.name}, reason=$reason", cause)
                     val userMessage = if (stage == "SDK 上传") reason else "${stage}失败：$reason"
                     BookUploadOutcome(file.name, false, userMessage, reconnectRequired)
                 } finally {

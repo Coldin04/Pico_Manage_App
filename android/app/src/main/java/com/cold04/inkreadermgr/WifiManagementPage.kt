@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,9 +41,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkOperationException
-import uniffi.picobook_sdk.SdkWifiCredential
-import uniffi.picobook_sdk.SdkWifiNetwork
+import uniffi.inkreaderlink_uniffi.SdkOperationException
+import uniffi.inkreaderlink_uniffi.SdkWifiCredential
+import uniffi.inkreaderlink_uniffi.SdkWifiNetwork
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
