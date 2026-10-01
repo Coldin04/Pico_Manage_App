@@ -761,7 +761,7 @@ class FirmwareUpdateActivity : ComponentActivity() {
                         Modifier.fillMaxSize().padding(innerPadding),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("暂不支持刷机", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("刷机功能适配中，敬请期待", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
