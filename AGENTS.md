@@ -84,7 +84,8 @@
 - 禁止直接在 `master` 分支开发或直接提交。所有变更必须先在功能分支或 fork 完成，再经 Pull Request 审核或确认的安全合并进入 `master`。
 - 未经用户明确同意，不得创建 commit。获得同意后，commit 必须使用签名提交。
 - 完成 iOS 与 Android 的基础可用版本后，在 `master` 上创建版本 Git tag 作为发布版本标识。
-- push 和 Pull Request 运行 Android SDK 固定 SHA 构建、单元测试和 debug APK 检查；版本 tag 才运行签名发布构建并创建 GitHub Release。
+- 仅推送到 `master` 或目标分支为 `master` 的 Pull Request 运行 Android SDK 固定 SHA 构建、单元测试和 debug APK 检查；单独推送功能分支不运行。同一分支或 PR 的新提交会取消旧运行。fork PR 触发前应由 GitHub Actions 的首次贡献者审批设置把关；工作流只有 `contents: read` 权限。
+- 提交检查不签名或创建 Release；版本 tag 才运行签名发布构建并创建 GitHub Release。
 - 发布前确认锁定的 SDK 版本、双端构建结果、分享入口和已连接设备的推书流程。
 
 ## 验证

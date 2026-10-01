@@ -35,7 +35,7 @@ Android `applicationId` 和 `namespace` 为 `com.cold04.inkreadermgr`。旧预�
 
 ## Android 提交检查
 
-push 和 Pull Request 会按固定 SDK commit 构建或缓存 InkReaderLink AAR，运行 Android 单元测试并组装 debug APK；同时检查 APK 的 applicationId 和 InkReaderLink 原生库。该工作流不签名、不创建 Release。
+Android 提交检查只在推送到 `master`，或 Pull Request 的目标分支为 `master` 时运行；单独推送功能分支不会启动检查。检查覆盖代码和文档改动，按固定 SDK commit 构建或缓存 InkReaderLink AAR，运行 Android 单元测试并组装 debug APK，同时校验 APK 的 applicationId 和原生库。同一分支或 PR 的新提交会取消尚未完成的旧检查。来自 fork 的 PR 也符合触发条件；仓库管理员应在 GitHub Actions 设置中要求首次贡献者审批后再运行工作流。工作流仅有 `contents: read` 权限，不签名或创建 Release；发布仍由匹配的版本 tag 触发。
 
 ## Android InkReaderLink 依赖与开发
 
