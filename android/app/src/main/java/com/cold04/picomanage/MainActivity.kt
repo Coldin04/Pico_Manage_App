@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DeviceSessions.initialize(applicationContext)
-        PendingIncomingFiles.receive(this, intent)
         enableEdgeToEdge()
         setContent {
             PicoManageTheme {
@@ -109,10 +108,63 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+class ShareActivity : ComponentActivity() {
+    private val incomingFiles = IncomingFilesInbox<List<BookUploadFile>>()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        DeviceSessions.initialize(applicationContext)
+        receiveShareIntent(intent)
+        enableEdgeToEdge()
+        setContent {
+            PicoManageTheme {
+                val devices by DeviceSessions.state.collectAsState()
+                val incomingEvent by incomingFiles.state.collectAsState()
+                androidx.compose.material3.Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text("推书") },
+                            navigationIcon = {
+                                IconButton(onClick = ::finish) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                                }
+                            },
+                        )
+                    },
+                ) { insets ->
+                    SendPage(
+                        activeDevice = devices.active,
+                        onDevicesClick = { startActivity(Intent(this, DeviceActivity::class.java)) },
+                        onFirmwareClick = { file ->
+                            startActivity(Intent(this, FirmwareUpdateActivity::class.java).apply {
+                                if (file != null) {
+                                    data = file.uri
+                                    putExtra(FirmwareUpdateActivity.EXTRA_FILE_NAME, file.name)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                            })
+                        },
+                        incomingEvent = incomingEvent,
+                        onIncomingFilesConsumed = incomingFiles::consume,
+                        modifier = Modifier.padding(insets),
+                    )
+                }
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        PendingIncomingFiles.receive(this, intent)
+        receiveShareIntent(intent)
+    }
+
+    private fun receiveShareIntent(intent: Intent?) {
+        val files = IncomingShareFiles.receive(this, intent)
+        if (files.isNotEmpty()) incomingFiles.publish(files)
     }
 }
 
@@ -154,12 +206,7 @@ private fun MainShell(
     val destinations = MainDestination.entries
     val pagerState = rememberPagerState(pageCount = { destinations.size })
     val coroutineScope = rememberCoroutineScope()
-    val incomingFiles by PendingIncomingFiles.files.collectAsState()
     val connectedDeviceCount = if (activeDevice == null) 0 else 1
-
-    androidx.compose.runtime.LaunchedEffect(incomingFiles) {
-        if (incomingFiles.isNotEmpty()) pagerState.animateScrollToPage(destinations.indexOf(MainDestination.SEND))
-    }
 
     fun returnToSend() {
         coroutineScope.launch { pagerState.animateScrollToPage(destinations.indexOf(MainDestination.SEND)) }
@@ -298,10 +345,13 @@ private fun MainNavigation(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun SendPage(
+internal fun SendPage(
     activeDevice: ActiveDevice?,
     onDevicesClick: () -> Unit,
     onFirmwareClick: (BookUploadFile?) -> Unit,
+    incomingEvent: IncomingFilesEvent<List<BookUploadFile>>? = null,
+    onIncomingFilesConsumed: (Long) -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -309,7 +359,6 @@ private fun SendPage(
     var selectedFiles by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<List<BookUploadFile>>(emptyList())
     }
-    val incomingFiles by PendingIncomingFiles.files.collectAsState()
     var fontFamilyName by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     var showFontUploadDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var operationError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -339,7 +388,8 @@ private fun SendPage(
         .orEmpty()
     val canUploadFonts = activeDevice?.profile?.let { "fonts.upload" in it.capabilities } == true && fontExtensions.isNotEmpty()
 
-    androidx.compose.runtime.LaunchedEffect(incomingFiles, activeDevice?.saved?.id) {
+    androidx.compose.runtime.LaunchedEffect(incomingEvent?.id, activeDevice?.saved?.id) {
+        val incomingFiles = incomingEvent?.value.orEmpty()
         if (incomingFiles.isNotEmpty()) {
             selectedFiles = incomingFiles
             val extension = incomingFiles.singleOrNull()?.name?.substringAfterLast('.', "")?.lowercase(Locale.ROOT)
@@ -348,7 +398,7 @@ private fun SendPage(
                 incomingFiles.size == 1 && canUploadFonts && extension in fontExtensions -> SendFileCategory.FONT
                 else -> SendFileCategory.BOOK
             }
-            PendingIncomingFiles.clear()
+            incomingEvent?.id?.let(onIncomingFilesConsumed)
         }
     }
 
@@ -386,7 +436,7 @@ private fun SendPage(
     }
     val bookReview = activeDevice?.profile?.let { reviewBookFiles(selectedFiles, it) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)

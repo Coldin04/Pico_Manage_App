@@ -4,8 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.widget.Toast
+import android.content.ClipData
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,7 +51,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 import uniffi.picobook_sdk.SdkDeviceProfile
 import uniffi.picobook_sdk.SdkFileEntry
 import uniffi.picobook_sdk.SdkFileLocation
@@ -57,38 +62,57 @@ import java.util.Locale
 
 data class BookUploadFile(val uri: Uri, val name: String, val contentType: String?)
 
-object PendingIncomingFiles {
-    private val mutableFiles = MutableStateFlow<List<BookUploadFile>>(emptyList())
-    val files = mutableFiles.asStateFlow()
+internal data class IncomingFilesEvent<T>(val id: Long, val value: T)
 
-    fun receive(context: Context, intent: Intent?) {
-        if (intent == null) return
-        val uris = when (intent.action) {
+internal class IncomingFilesInbox<T> {
+    private val nextId = AtomicLong(0)
+    private val mutableState = MutableStateFlow<IncomingFilesEvent<T>?>(null)
+    val state = mutableState.asStateFlow()
+
+    fun publish(value: T) {
+        mutableState.value = IncomingFilesEvent(nextId.incrementAndGet(), value)
+    }
+
+    fun consume(id: Long) {
+        if (mutableState.value?.id == id) mutableState.value = null
+    }
+}
+
+object IncomingShareFiles {
+    fun receive(context: Context, intent: Intent?): List<BookUploadFile> {
+        if (intent == null) return emptyList()
+        val sharedUris = when (intent.action) {
             Intent.ACTION_VIEW -> listOfNotNull(intent.data)
-            Intent.ACTION_SEND -> listOfNotNull(
-                intent.parcelableUri(Intent.EXTRA_STREAM),
-                intent.clipData?.takeIf { intent.parcelableUri(Intent.EXTRA_STREAM) == null }
-                    ?.getItemAt(0)?.uri,
-            )
-            Intent.ACTION_SEND_MULTIPLE -> {
-                @Suppress("DEPRECATION")
-                val shared = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
-                (shared + (0 until (intent.clipData?.itemCount ?: 0)).mapNotNull { intent.clipData?.getItemAt(it)?.uri })
-                    .distinct()
-            }
+            Intent.ACTION_SEND -> listOfNotNull(intent.parcelableUri(Intent.EXTRA_STREAM)) +
+                intent.clipData.uris()
+            Intent.ACTION_SEND_MULTIPLE -> intent.parcelableUris(Intent.EXTRA_STREAM) + intent.clipData.uris()
             else -> emptyList()
-        }
-        mutableFiles.value = uris.map { uri ->
-            BookUploadFile(uri, displayName(context, uri), context.contentResolver.getType(uri))
+        }.distinct()
+        return sharedUris.map { uri ->
+            BookUploadFile(
+                uri,
+                displayName(context, uri),
+                runCatching { context.contentResolver.getType(uri) }.getOrNull(),
+            )
         }
     }
 
-    fun clear() { mutableFiles.value = emptyList() }
+    private fun ClipData?.uris(): List<Uri> = this?.let { clip ->
+        (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+    }.orEmpty()
 
     @Suppress("DEPRECATION")
     private fun Intent.parcelableUri(key: String): Uri? =
         if (android.os.Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, Uri::class.java)
         else getParcelableExtra(key)
+
+    @Suppress("DEPRECATION")
+    private fun Intent.parcelableUris(key: String): List<Uri> =
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getParcelableArrayListExtra(key, Uri::class.java).orEmpty()
+        } else {
+            getParcelableArrayListExtra<Uri>(key).orEmpty()
+        }
 }
 data class BookUploadOutcome(
     val name: String,
@@ -130,11 +154,15 @@ fun rememberBookFilePicker(onFilesPicked: (List<BookUploadFile>) -> Unit): () ->
 }
 
 internal fun displayName(context: Context, uri: Uri): String {
-    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-        val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (column >= 0 && cursor.moveToFirst()) cursor.getString(column)?.let { return it }
-    }
-    return uri.lastPathSegment?.substringAfterLast('/')?.takeIf(String::isNotBlank) ?: "book"
+    val queriedName = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+        }
+    }.getOrNull()
+    return queriedName?.takeIf(String::isNotBlank)
+        ?: Uri.decode(uri.lastPathSegment.orEmpty()).substringAfterLast('/').takeIf(String::isNotBlank)
+        ?: "book"
 }
 
 fun reviewBookFiles(files: List<BookUploadFile>, profile: SdkDeviceProfile): BookUploadReview {
@@ -176,15 +204,11 @@ object BookUploadQueue {
             skippedNames = skippedNames,
         )
         scope.launch {
-            try {
-                val outcomes = DeviceSessions.uploadBatch(context, files, location) { index, file, sent, total ->
+            val outcomes = try {
+                DeviceSessions.uploadBatch(context.applicationContext, files, location) { index, file, sent, total ->
                     mutableState.update {
                         it.copy(currentIndex = index + 1, currentName = file.name, sentBytes = sent, totalBytes = total)
                     }
-                }
-                mutableState.update { it.copy(running = false, outcomes = outcomes, sentBytes = null, totalBytes = null) }
-                if (outcomes.all { it.success } && skippedNames.isEmpty()) {
-                    Toast.makeText(context, uploadResultMessage(outcomes, skippedNames), Toast.LENGTH_LONG).show()
                 }
             } catch (cause: Exception) {
                 val message = DeviceSessions.describeUploadFailure(cause)
@@ -197,6 +221,21 @@ object BookUploadQueue {
                         sentBytes = null,
                         totalBytes = null,
                     )
+                }
+                return@launch
+            }
+            mutableState.update { it.copy(running = false, outcomes = outcomes, sentBytes = null, totalBytes = null) }
+            if (outcomes.all { it.success } && skippedNames.isEmpty()) {
+                try {
+                    withContext(Dispatchers.Main.immediate) {
+                        Toast.makeText(
+                            context.applicationContext,
+                            uploadResultMessage(outcomes, skippedNames),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                } catch (cause: Exception) {
+                    Log.w("PicoUpload", "Upload succeeded but completion notification failed", cause)
                 }
             }
         }
@@ -318,10 +357,27 @@ fun BookUploadReviewDialog(
 fun BookUploadStatus(modifier: Modifier = Modifier) {
     val progress by BookUploadQueue.state.collectAsState()
     var showDetails by remember { mutableStateOf(false) }
+    var showFailureSnackbar by remember { mutableStateOf(false) }
     val failedOutcomes = progress.outcomes.filterNot { it.success }
     val hasFailure = !progress.running && (progress.batchError != null || failedOutcomes.isNotEmpty() || progress.skippedNames.isNotEmpty())
+    LaunchedEffect(progress.running, progress.batchError, progress.outcomes, progress.skippedNames) {
+        if (hasFailure) {
+            showFailureSnackbar = true
+            delay(4_000)
+            showFailureSnackbar = false
+        } else {
+            showFailureSnackbar = false
+        }
+    }
+    val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val snackbarContainer = if (isDarkTheme) Color.Black else Color(0xFF313033)
     if (progress.running) {
-        Snackbar(modifier = modifier) {
+        Snackbar(
+            modifier = modifier,
+            containerColor = snackbarContainer,
+            contentColor = Color(0xFFF4EFF4),
+            actionContentColor = MaterialTheme.colorScheme.primary,
+        ) {
             androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth()) {
                 Text("上传 ${progress.currentIndex.coerceAtLeast(1)}/${progress.totalCount} ${progress.currentName.orEmpty()}")
                 val total = progress.totalBytes
@@ -336,13 +392,16 @@ fun BookUploadStatus(modifier: Modifier = Modifier) {
                 }
             }
         }
-    } else if (hasFailure) {
+    } else if (hasFailure && showFailureSnackbar) {
         val failureCount = failedOutcomes.size + progress.skippedNames.size
         val successes = progress.outcomes.count { it.success }
         val summary = progress.batchError?.let { "上传失败：$it" }
             ?: "上传结束：成功 $successes，失败 $failureCount"
         Snackbar(
             modifier = modifier,
+            containerColor = snackbarContainer,
+            contentColor = Color(0xFFF4EFF4),
+            actionContentColor = MaterialTheme.colorScheme.primary,
             action = { TextButton(onClick = { showDetails = true }) { Text("详情") } },
             actionOnNewLine = true,
         ) {
