@@ -14,12 +14,12 @@ pluginManagement {
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
-val picobookSdkVersion = providers.gradleProperty("picobookSdkVersion").orNull.orEmpty()
-val isGitSdkVersion = Regex("^git\\.[0-9a-f]{40}$").matches(picobookSdkVersion)
-if (picobookSdkVersion.startsWith("git.") && !isGitSdkVersion) {
-    throw GradleException("PicoBook SDK git versions must use git.<full 40-character lowercase commit SHA>.")
+val inkreaderlinkSdkVersion = providers.gradleProperty("inkreaderlinkSdkVersion").orNull.orEmpty()
+val isGitSdkVersion = Regex("^git\\.[0-9a-f]{40}$").matches(inkreaderlinkSdkVersion)
+if (inkreaderlinkSdkVersion.startsWith("git.") && !isGitSdkVersion) {
+    throw GradleException("InkReaderLink git versions must use git.<full 40-character lowercase commit SHA>.")
 }
-val sdkFromLocalMaven = picobookSdkVersion == "local" || isGitSdkVersion
+val sdkFromLocalMaven = inkreaderlinkSdkVersion == "local" || isGitSdkVersion
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -27,13 +27,13 @@ dependencyResolutionManagement {
         if (sdkFromLocalMaven) {
             // Source-built coordinates must come from mavenLocal and never fall back to Central.
             mavenLocal {
-                content { includeModule("com.cold04", "picobookmgr") }
+                content { includeModule("com.cold04", "inkreaderlink-uniffi") }
             }
             google {
-                content { excludeModule("com.cold04", "picobookmgr") }
+                content { excludeModule("com.cold04", "inkreaderlink-uniffi") }
             }
             mavenCentral {
-                content { excludeModule("com.cold04", "picobookmgr") }
+                content { excludeModule("com.cold04", "inkreaderlink-uniffi") }
             }
         } else {
             google()

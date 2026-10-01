@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -67,9 +67,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.io.File
-import uniffi.picobook_sdk.SdkFileEntry
-import uniffi.picobook_sdk.SdkFileKind
-import uniffi.picobook_sdk.SdkFileLocation
+import uniffi.inkreaderlink_uniffi.SdkFileEntry
+import uniffi.inkreaderlink_uniffi.SdkFileKind
+import uniffi.inkreaderlink_uniffi.SdkFileLocation
 
 enum class FileBrowserMode { Browse, SelectDirectory }
 

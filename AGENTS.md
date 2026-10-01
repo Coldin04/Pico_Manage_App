@@ -3,17 +3,17 @@
 ## 项目目标
 
 - Pico Manager 用于管理运行 Read Pico 官方固件、CrossPoint 及其分支固件的设备。
-- App 连接设备后，通过 `picobook_sdk` 的抽象能力管理设备，包括推送图书文件、浏览和管理设备文件，以及管理已保存的 Wi-Fi 网络。
+- App 连接设备后，通过 `InkReaderLink` 的抽象能力管理设备，包括推送图书文件、浏览和管理设备文件，以及管理已保存的 Wi-Fi 网络。
 - `Pico` 是项目名称中“小”的含义；本项目不是 Read Pico 的第一方或官方应用。对第三方设备和固件的兼容不表示认可、赞助或隶属关系。
 
 ## 平台与职责
 
-- **`picobook_sdk` 是设备业务能力的唯一来源。** SDK 负责设备发现、能力识别、文件传输和文件管理；上层 App 只负责 UI 与平台原生入口。不得在 App 重建、绕过或猜测 SDK 的设备通信、能力判断、文件协议或设备状态逻辑。
+- **`inkreaderlink-core` 是设备业务能力的唯一来源。** SDK 负责设备发现、能力识别、文件传输和文件管理；上层 App 只负责 UI 与平台原生入口。不得在 App 重建、绕过或猜测 SDK 的设备通信、能力判断、文件协议或设备状态逻辑。
 - 分别开发原生 iOS 与原生 Android 应用；不要以跨平台 UI 框架替代两个平台的主要界面实现。
 - App 主要负责原生界面、权限、文件选择/分享入口、二维码扫描和平台生命周期。二维码扫描等原生实现明显更合适的能力，应优先使用平台原生 API。
-- 设备连接、设备识别、能力声明、文件传输、文件管理和 Wi-Fi 操作优先调用 `picobook_sdk`。不要在 App 中拼接固件 endpoint、处理固件分页或复制 adapter 协议逻辑。
+- 设备连接、设备识别、能力声明、文件传输、文件管理和 Wi-Fi 操作优先调用 `InkReaderLink`。不要在 App 中拼接固件 endpoint、处理固件分页或复制 adapter 协议逻辑。
 - SDK 已有的能力必须优先复用；只有 SDK 无法表达且确有跨设备价值时，才扩展 SDK。新增设备且未新增通用能力时，不应要求 App 按设备类型修改调用代码。
-- SDK 在 https://github.com/Coldin04/PicoBook_SDK 中查阅；以其公开接口和文档为准。
+- SDK 在 https://github.com/Coldin04/InkReaderLink 中查阅；以其公开接口和文档为准。
 
 ## 界面设计
 
@@ -70,21 +70,22 @@
 ## 可扩展性
 
 - 欢迎贡献 Read Pico、CrossPoint 之外的设备或固件支持，建议在SDK仓库写明能力和逻辑，APP仓库只负责界面实现。新增 App 平台时，使用该平台的原生开发方式，并保持本文件的能力驱动原则。
-- 新设备协议与设备专属行为应优先落在 `picobook_sdk` 的 adapter/设备定义中；App 使用统一模型渲染。
+- 新设备协议与设备专属行为应优先落在 `InkReaderLink` 的 adapter/设备定义中；App 使用统一模型渲染。
 - 不使用品牌名判断能力，也不将厂商私有协议扩散到 UI 层。
 
 ## SDK 依赖
 
 - SDK 版本必须锁定，避免上游更新导致不可复现的构建或 API 漂移。
-- Android SDK 通过 Maven Central 发布；App 固定 `com.cold04:picobookmgr` 的准确版本。AAR 中的 `libpicobookmgr.so` 和 `uniffi.picobook_sdk` 绑定必须由同一 SDK 源码版本构建。
-- iOS 对外 Swift 模块名为 `PicoBookMgr`；当前 App 尚无 iOS 工程。
+- Android SDK 通过 Maven Central 发布；App 固定 `com.cold04:inkreaderlink-uniffi` 的准确版本。AAR 中的 `libcold04_inkreaderlink.so` 和 `uniffi.inkreaderlink_uniffi` 绑定必须由同一 SDK 源码版本构建。
+- iOS 对外 Swift 模块名为 `InkReaderLink`；当前 App 尚无 iOS 工程。
 
 ## Git、版本与发布
 
 - 禁止直接在 `master` 分支开发或直接提交。所有变更必须先在功能分支或 fork 完成，再经 Pull Request 审核或确认的安全合并进入 `master`。
 - 未经用户明确同意，不得创建 commit。获得同意后，commit 必须使用签名提交。
 - 完成 iOS 与 Android 的基础可用版本后，在 `master` 上创建版本 Git tag 作为发布版本标识。
-- GitHub CI 仅在检测到版本 tag 时编译 iOS 与 Android 应用；普通提交和 PR 不触发发布构建。
+- 仅推送到 `master` 或目标分支为 `master` 的 Pull Request 运行 Android SDK 固定 SHA 构建、单元测试和 debug APK 检查；单独推送功能分支不运行。同一分支或 PR 的新提交会取消旧运行。fork PR 触发前应由 GitHub Actions 的首次贡献者审批设置把关；工作流只有 `contents: read` 权限。
+- 提交检查不签名或创建 Release；版本 tag 才运行签名发布构建并创建 GitHub Release。
 - 发布前确认锁定的 SDK 版本、双端构建结果、分享入口和已连接设备的推书流程。
 
 ## 验证

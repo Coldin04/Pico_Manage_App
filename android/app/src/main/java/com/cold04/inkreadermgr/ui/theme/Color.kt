@@ -1,4 +1,4 @@
-package com.cold04.picomanage.ui.theme
+package com.cold04.inkreadermgr.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

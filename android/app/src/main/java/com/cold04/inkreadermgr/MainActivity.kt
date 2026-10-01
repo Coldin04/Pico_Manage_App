@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.app.Activity
 import android.content.Intent
@@ -74,7 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -406,10 +406,10 @@ internal fun SendPage(
         if (review.accepted.isEmpty()) return
         pendingReview = null
         val location = if (canChooseDirectory) {
-            selectedDirectory?.let(uniffi.picobook_sdk.SdkFileLocation::Directory)
-                ?: uniffi.picobook_sdk.SdkFileLocation.Root
+            selectedDirectory?.let(uniffi.inkreaderlink_uniffi.SdkFileLocation::Directory)
+                ?: uniffi.inkreaderlink_uniffi.SdkFileLocation.Root
         } else {
-            uniffi.picobook_sdk.SdkFileLocation.Root
+            uniffi.inkreaderlink_uniffi.SdkFileLocation.Root
         }
         BookUploadQueue.start(context, review.accepted, location, review.unsupportedNames)
     }

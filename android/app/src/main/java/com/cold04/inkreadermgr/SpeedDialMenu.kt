@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add

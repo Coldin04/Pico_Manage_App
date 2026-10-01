@@ -1,0 +1,97 @@
+name: Android Checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# Replace obsolete runs when new commits arrive on the same branch or PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Resolve SDK source version
+        id: sdk-version
+        shell: bash
+        run: |
+          sdk_version="$(sed -n 's/^inkreaderlinkSdkVersion=//p' android/gradle.properties | tail -n 1)"
+          [[ "$sdk_version" =~ ^git\.([0-9a-f]{40})$ ]] || {
+            echo "Commit checks require inkreaderlinkSdkVersion=git.<full 40-character lowercase commit SHA>." >&2
+            exit 1
+          }
+          echo "version=$sdk_version" >> "$GITHUB_OUTPUT"
+          echo "commit=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache source-built SDK AAR
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/com/cold04/inkreaderlink-uniffi/${{ steps.sdk-version.outputs.version }}
+          key: inkreaderlink-sdk-aar-v1-ndk27.2-uniffi0.32.2-${{ steps.sdk-version.outputs.commit }}
+
+      - name: Install Rust Android tools
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-ndk --locked
+          cargo install uniffi --version 0.32.2 --features cli --bin uniffi-bindgen --locked
+
+      - name: Build SDK from its pinned commit
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        env:
+          INKREADERLINK_SDK_REPOSITORY: ${{ vars.INKREADERLINK_SDK_REPOSITORY || 'https://github.com/Coldin04/InkReaderLink.git' }}
+        run: ./scripts/install-sdk-from-git.sh "${{ steps.sdk-version.outputs.version }}"
+
+      - name: Test and build App
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Verify package identity and native library
+        shell: bash
+        run: |
+          if grep -RniE 'PicoBook_SDK|picobook_sdk|picobookmgr|uniffi\.picobook_sdk|picobookSdkVersion|PICOBOOK_SDK_REPOSITORY|com\.cold04\.picomanage' README.md AGENTS.md android/gradle.properties android/settings.gradle.kts android/app/build.gradle.kts android/app/proguard-rules.pro android/app/src scripts .github/workflows/publish-android.yml; then
+            echo "Legacy PicoBook SDK coordinates or App package identifiers remain." >&2
+            exit 1
+          fi
+          for apk in android/app/build/outputs/apk/debug/*.apk; do
+            badging="$("$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging "$apk" | head -1)"
+            [[ "$badging" == *"package: name='com.cold04.inkreadermgr'"* ]] || {
+              echo "Unexpected applicationId in $apk: $badging" >&2
+              exit 1
+            }
+            unzip -Z1 "$apk" | grep -q '^lib/[^/]*/libcold04_inkreaderlink\.so$' || {
+              echo "InkReaderLink native library missing from $apk" >&2
+              exit 1
+            }
+          done

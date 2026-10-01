@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import org.junit.Test
 

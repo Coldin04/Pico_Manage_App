@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.app.Activity
 import android.content.Intent
@@ -54,7 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkOperationException
+import uniffi.inkreaderlink_uniffi.SdkOperationException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

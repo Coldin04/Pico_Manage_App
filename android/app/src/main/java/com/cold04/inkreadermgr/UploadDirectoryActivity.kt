@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.app.Activity
 import android.content.Intent
@@ -7,7 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.ExperimentalMaterial3Api
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 
 class UploadDirectoryActivity : ComponentActivity() {
     companion object {

@@ -5,9 +5,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val picobookSdkVersion = providers.gradleProperty("picobookSdkVersion").get()
+val inkreaderlinkSdkVersion = providers.gradleProperty("inkreaderlinkSdkVersion").get()
 
-if (picobookSdkVersion == "local") {
+if (inkreaderlinkSdkVersion == "local") {
     configurations.configureEach {
         resolutionStrategy.cacheChangingModulesFor(0, "seconds")
     }
@@ -21,13 +21,13 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.cold04.picomanage"
+    namespace = "com.cold04.inkreadermgr"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.cold04.picomanage"
+        applicationId = "com.cold04.inkreadermgr"
         minSdk = 28
         targetSdk = 36
         versionCode = System.getenv("APP_VERSION_CODE")?.toInt() ?: 1
@@ -92,8 +92,8 @@ android {
 }
 
 dependencies {
-    implementation("com.cold04:picobookmgr:$picobookSdkVersion") {
-        isChanging = picobookSdkVersion == "local"
+    implementation("com.cold04:inkreaderlink-uniffi:$inkreaderlinkSdkVersion") {
+        isChanging = inkreaderlinkSdkVersion == "local"
     }
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
     implementation("androidx.camera:camera-camera2:1.6.2")

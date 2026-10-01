@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.Manifest
 import android.content.Intent
@@ -52,7 +52,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 

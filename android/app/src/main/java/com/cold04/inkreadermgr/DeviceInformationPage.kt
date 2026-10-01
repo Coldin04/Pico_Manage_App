@@ -1,4 +1,4 @@
-package com.cold04.picomanage
+package com.cold04.inkreadermgr
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -32,9 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.cold04.picomanage.ui.theme.PicoManageTheme
+import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
-import uniffi.picobook_sdk.SdkDeviceInfoField
+import uniffi.inkreaderlink_uniffi.SdkDeviceInfoField
 
 class DeviceInformationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
