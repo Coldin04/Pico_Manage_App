@@ -6,6 +6,7 @@ plugins {
 }
 
 val inkreaderlinkSdkVersion = providers.gradleProperty("inkreaderlinkSdkVersion").get()
+val debugSigningConfigName = providers.gradleProperty("debugSigningConfig").getOrElse("release")
 
 if (inkreaderlinkSdkVersion == "local") {
     configurations.configureEach {
@@ -70,7 +71,8 @@ android {
     buildTypes {
         debug {
             // Keep the package signature compatible with locally signed release builds.
-            signingConfig = signingConfigs.getByName("release")
+            // CI can select the generated debug key when the release keystore is unavailable.
+            signingConfig = signingConfigs.getByName(debugSigningConfigName)
         }
         release {
             signingConfig = signingConfigs.getByName("release")

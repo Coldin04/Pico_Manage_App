@@ -75,7 +75,7 @@ jobs:
 
       - name: Test and build App
         working-directory: android
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew --no-daemon -PdebugSigningConfig=debug :app:testDebugUnitTest :app:assembleDebug
 
       - name: Verify package identity and native library
         shell: bash
