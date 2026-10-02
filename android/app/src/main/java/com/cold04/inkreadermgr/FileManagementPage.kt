@@ -1,6 +1,7 @@
 package com.cold04.inkreadermgr
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,6 +71,7 @@ import java.io.File
 import uniffi.inkreaderlink_uniffi.SdkFileEntry
 import uniffi.inkreaderlink_uniffi.SdkFileKind
 import uniffi.inkreaderlink_uniffi.SdkFileLocation
+import uniffi.inkreaderlink_uniffi.SdkFileDownload
 
 enum class FileBrowserMode { Browse, SelectDirectory }
 
@@ -87,10 +89,10 @@ fun DeviceFileBrowser(
     capabilities: Set<String> = emptySet(),
     actionsEnabled: Boolean = true,
     showCurrentDirectoryHeader: Boolean = true,
-    selectedEntryPath: String? = null,
-    highlightedEntryPath: String? = selectedEntryPath,
+    selectedEntryPaths: Set<String> = emptySet(),
+    highlightedEntryPaths: Set<String> = emptySet(),
     onEntryLongPress: ((SdkFileEntry) -> Unit)? = null,
-    onClearSelection: () -> Unit = {},
+    onToggleEntrySelection: ((SdkFileEntry) -> Unit)? = null,
     onOpenDirectory: (SdkFileEntry) -> Unit,
     onNavigateUp: () -> Unit,
     onRename: ((SdkFileEntry) -> Unit)? = null,
@@ -140,12 +142,8 @@ fun DeviceFileBrowser(
                             enabled = actionsEnabled,
                             onClick = {
                                 when {
-                                    selectedEntryPath != null && directory -> {
-                                        onClearSelection()
-                                        onOpenDirectory(entry)
-                                    }
-                                    selectedEntryPath == entry.path -> onClearSelection()
-                                    selectedEntryPath != null && canSelectEntry -> onEntryLongPress?.invoke(entry)
+                                    selectedEntryPaths.isNotEmpty() && canSelectEntry -> onToggleEntrySelection?.invoke(entry)
+                                    selectedEntryPaths.isNotEmpty() -> Unit
                                     directory -> onOpenDirectory(entry)
                                     else -> Unit
                                 }
@@ -153,7 +151,7 @@ fun DeviceFileBrowser(
                             onLongClick = { if (canSelectEntry) onEntryLongPress?.invoke(entry) },
                         ),
                         colors = ListItemDefaults.colors(
-                            containerColor = if (highlightedEntryPath == entry.path) {
+                            containerColor = if (entry.path in selectedEntryPaths || entry.path in highlightedEntryPaths) {
                                 MaterialTheme.colorScheme.secondaryContainer
                             } else MaterialTheme.colorScheme.surface,
                         ),
@@ -255,14 +253,31 @@ fun FileManagementPage(
     var reconnectToDevice by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<PendingFileAction?>(null) }
     var dialogValue by remember { mutableStateOf("") }
-    var selectedEntry by remember(active?.saved?.id) { mutableStateOf<SdkFileEntry?>(null) }
+    var selectedEntries by remember(active?.saved?.id) { mutableStateOf(emptyList<SdkFileEntry>()) }
     var selectionMenuExpanded by remember { mutableStateOf(false) }
     var fileActionsExpanded by remember(active?.saved?.id) { mutableStateOf(false) }
-    var movingEntry by remember(active?.saved?.id) { mutableStateOf<SdkFileEntry?>(null) }
+    var movingEntries by remember(active?.saved?.id) { mutableStateOf(emptyList<SdkFileEntry>()) }
+    val movingEntry = movingEntries.singleOrNull()
     var downloadEntry by remember { mutableStateOf<SdkFileEntry?>(null) }
+    var downloadEntries by remember { mutableStateOf(emptyList<SdkFileEntry>()) }
     var pendingUploadReview by remember { mutableStateOf<BookUploadReview?>(null) }
     val context = LocalContext.current
     val uploadProgress by BookUploadQueue.state.collectAsState()
+    val selectedEntry = selectedEntries.singleOrNull()
+
+    fun clearSelection() {
+        selectedEntries = emptyList()
+        selectionMenuExpanded = false
+    }
+
+    fun toggleEntrySelection(entry: SdkFileEntry) {
+        selectionMenuExpanded = false
+        selectedEntries = if (selectedEntries.any { it.path == entry.path }) {
+            selectedEntries.filterNot { it.path == entry.path }
+        } else {
+            selectedEntries + entry
+        }
+    }
 
     fun startUpload(review: BookUploadReview) {
         val profile = active?.profile ?: return
@@ -308,6 +323,47 @@ fun FileManagementPage(
             }
         }
     }
+    val downloadDirectoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri: Uri? ->
+        val files = downloadEntries
+        downloadEntries = emptyList()
+        if (treeUri != null && files.isNotEmpty()) {
+            scope.launch {
+                operationBusy = true
+                loading = true
+                error = null
+                val stagedFiles = mutableListOf<File>()
+                try {
+                    files.forEach { stagedFiles += File.createTempFile("device-download-", ".tmp", context.cacheDir) }
+                    DeviceSessions.downloadFiles(files.zip(stagedFiles).map { (entry, staged) ->
+                        SdkFileDownload(entry.path, staged.absolutePath)
+                    })
+                    val parentUri = DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri,
+                        DocumentsContract.getTreeDocumentId(treeUri),
+                    )
+                    files.zip(stagedFiles).forEach { (entry, staged) ->
+                        val documentUri = DocumentsContract.createDocument(
+                            context.contentResolver,
+                            parentUri,
+                            "application/octet-stream",
+                            entry.name,
+                        ) ?: throw IllegalStateException("无法在所选目录创建文件：${entry.name}")
+                        context.contentResolver.openOutputStream(documentUri)?.use { output ->
+                            staged.inputStream().buffered().use { input -> input.copyTo(output, 64 * 1024) }
+                        } ?: throw IllegalStateException("无法写入文件：${entry.name}")
+                    }
+                    clearSelection()
+                } catch (cause: Exception) {
+                    error = DeviceSessions.describeOperationFailure(cause, "批量下载")
+                    reconnectToDevice = DeviceSessions.isConnectionFailure(cause)
+                } finally {
+                    stagedFiles.forEach(File::delete)
+                    loading = false
+                    operationBusy = false
+                }
+            }
+        }
+    }
 
     fun refresh() {
         if (!isVisible || active == null || !active.profile.capabilities.contains("files.list")) return
@@ -333,9 +389,15 @@ fun FileManagementPage(
         }
     }
     fun pasteMove() {
-        val source = movingEntry ?: return
+        val sources = movingEntries.filter { candidate ->
+            movingEntries.none { ancestor ->
+                ancestor.path != candidate.path && ancestor.kind == SdkFileKind.DIRECTORY &&
+                    isStrictDescendant(ancestor.path, candidate.path)
+            }
+        }
+        if (sources.isEmpty()) return
         val destination = directory
-        if (isSameOrDescendant(source.path, destination)) {
+        if (sources.any { isSameOrDescendant(it.path, destination) }) {
             error = "不能移动到自身或其子目录"
             return
         }
@@ -344,8 +406,8 @@ fun FileManagementPage(
             loading = true
             error = null
             try {
-                DeviceSessions.moveFile(source.path, destination ?: "/")
-                movingEntry = null
+                DeviceSessions.moveFiles(sources.map { it.path }, destination ?: "/")
+                movingEntries = emptyList()
                 refresh()
             } catch (cause: Exception) {
                 error = DeviceSessions.describeOperationFailure(cause, "移动")
@@ -370,8 +432,8 @@ fun FileManagementPage(
     }
     BackHandler(enabled = isVisible) {
         when {
-            selectedEntry != null -> selectedEntry = null
-            movingEntry != null -> movingEntry = null
+            selectedEntries.isNotEmpty() -> clearSelection()
+            movingEntries.isNotEmpty() -> movingEntries = emptyList()
             directoryStack.isNotEmpty() -> navigateUp()
             else -> onBackFromRoot()
         }
@@ -380,22 +442,25 @@ fun FileManagementPage(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(selectedEntry?.name ?: directory?.substringAfterLast('/')?.ifEmpty { "文件管理" } ?: "文件管理")
+                    Text(
+                        if (selectedEntries.isNotEmpty()) "${selectedEntries.size}个项目"
+                        else directory?.substringAfterLast('/')?.ifEmpty { "文件管理" } ?: "文件管理",
+                    )
                 },
                 navigationIcon = {
-                    if (selectedEntry != null || directory != null) {
+                    if (selectedEntries.isNotEmpty() || directory != null) {
                         IconButton(onClick = {
-                            if (selectedEntry != null) selectedEntry = null else navigateUp()
+                            if (selectedEntries.isNotEmpty()) clearSelection() else navigateUp()
                         }) {
                             Icon(
-                                if (selectedEntry != null) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = if (selectedEntry != null) "取消选择" else "返回上级目录",
+                                if (selectedEntries.isNotEmpty()) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = if (selectedEntries.isNotEmpty()) "取消选择" else "返回上级目录",
                             )
                         }
                     }
                 },
                 actions = {
-                    if (selectedEntry != null) {
+                    if (selectedEntries.isNotEmpty()) {
                         Box {
                             IconButton(onClick = { selectionMenuExpanded = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "更多文件操作")
@@ -404,45 +469,49 @@ fun FileManagementPage(
                                 expanded = selectionMenuExpanded,
                                 onDismissRequest = { selectionMenuExpanded = false },
                             ) {
-                                selectedEntry?.let { entry ->
-                                    if (entry.kind != SdkFileKind.DIRECTORY && capabilities.contains("files.download")) {
-                                        DropdownMenuItem(text = { Text("下载") }, onClick = {
-                                            selectionMenuExpanded = false
+                                if (selectedEntries.all { it.kind != SdkFileKind.DIRECTORY } && capabilities.contains("files.download")) {
+                                    DropdownMenuItem(text = { Text("下载") }, onClick = {
+                                        selectionMenuExpanded = false
+                                        if (selectedEntries.size == 1) {
+                                            val entry = selectedEntries.single()
                                             downloadEntry = entry
                                             downloadPicker.launch(entry.name)
-                                            selectedEntry = null
-                                        })
-                                    }
-                                    if (capabilities.contains("files.move")) {
-                                        DropdownMenuItem(text = { Text("移动") }, onClick = {
-                                            selectionMenuExpanded = false
-                                            movingEntry = entry
-                                            selectedEntry = null
-                                        })
-                                    }
-                                    if (capabilities.contains("files.rename")) {
-                                        DropdownMenuItem(text = { Text("重命名") }, onClick = {
-                                            selectionMenuExpanded = false
-                                            dialogValue = entry.name
-                                            pendingAction = PendingFileAction.Rename(entry)
-                                            selectedEntry = null
-                                        })
-                                    }
-                                    if (capabilities.contains("files.delete")) {
-                                        DropdownMenuItem(text = { Text("删除") }, onClick = {
-                                            selectionMenuExpanded = false
-                                            pendingAction = PendingFileAction.Delete(entry)
-                                            selectedEntry = null
-                                        })
-                                    }
+                                            clearSelection()
+                                        } else {
+                                            downloadEntries = selectedEntries
+                                            downloadDirectoryPicker.launch(null)
+                                            clearSelection()
+                                        }
+                                    })
+                                }
+                                if (capabilities.contains("files.move")) {
+                                    DropdownMenuItem(text = { Text("移动") }, onClick = {
+                                        selectionMenuExpanded = false
+                                        movingEntries = selectedEntries
+                                        clearSelection()
+                                    })
+                                }
+                                if (selectedEntry != null && capabilities.contains("files.rename")) {
+                                    DropdownMenuItem(text = { Text("重命名") }, onClick = {
+                                        selectionMenuExpanded = false
+                                        dialogValue = selectedEntry.name
+                                        pendingAction = PendingFileAction.Rename(selectedEntry)
+                                        clearSelection()
+                                    })
+                                }
+                                if (capabilities.contains("files.delete")) {
+                                    DropdownMenuItem(text = { Text("删除") }, onClick = {
+                                        selectionMenuExpanded = false
+                                        pendingAction = PendingFileAction.Delete(selectedEntries)
+                                    })
                                 }
                             }
                         }
-                    } else if (movingEntry != null) {
-                        IconButton(onClick = { movingEntry = null }) {
+                    } else if (movingEntries.isNotEmpty()) {
+                        IconButton(onClick = { movingEntries = emptyList() }) {
                             Icon(Icons.Default.Close, contentDescription = "取消移动")
                         }
-                        val canPaste = movingEntry?.let { !isSameOrDescendant(it.path, directory) } == true
+                        val canPaste = movingEntries.isNotEmpty() && movingEntries.none { isSameOrDescendant(it.path, directory) }
                         IconButton(onClick = ::pasteMove, enabled = canPaste && !operationBusy) {
                             Icon(Icons.Default.ContentPaste, contentDescription = "粘贴到此目录")
                         }
@@ -482,8 +551,9 @@ fun FileManagementPage(
                         ) { page ->
                             DeviceFileBrowser(
                                 entries = page.entries.filterNot { candidate ->
-                                    candidate.kind == SdkFileKind.DIRECTORY && movingEntry?.kind == SdkFileKind.DIRECTORY &&
-                                        isStrictDescendant(movingEntry!!.path, candidate.path)
+                                    candidate.kind == SdkFileKind.DIRECTORY && movingEntries.any { source ->
+                                        source.kind == SdkFileKind.DIRECTORY && isStrictDescendant(source.path, candidate.path)
+                                    }
                                 },
                                 currentDirectory = page.directory,
                                 loading = loading,
@@ -491,24 +561,23 @@ fun FileManagementPage(
                                 capabilities = capabilities,
                                 actionsEnabled = !operationBusy && !uploadProgress.running,
                                 showCurrentDirectoryHeader = false,
-                                selectedEntryPath = selectedEntry?.path,
-                                highlightedEntryPath = selectedEntry?.path ?: movingEntry?.path,
-                                onEntryLongPress = if (movingEntry == null) {
+                                selectedEntryPaths = selectedEntries.mapTo(linkedSetOf()) { it.path },
+                                highlightedEntryPaths = movingEntries.mapTo(linkedSetOf()) { it.path },
+                                onEntryLongPress = if (movingEntries.isEmpty()) {
                                     { entry ->
                                         fileActionsExpanded = false
                                         selectionMenuExpanded = false
-                                        selectedEntry = entry
+                                        toggleEntrySelection(entry)
                                     }
                                 } else null,
-                                onClearSelection = {
-                                    selectedEntry = null
-                                    selectionMenuExpanded = false
-                                },
+                                onToggleEntrySelection = if (movingEntries.isEmpty()) {
+                                    ::toggleEntrySelection
+                                } else null,
                                 onOpenDirectory = {
-                                    if (movingEntry == null || !isSameOrDescendant(movingEntry!!.path, it.path)) {
+                                    if (movingEntries.isEmpty() || movingEntries.none { source -> isSameOrDescendant(source.path, it.path) }) {
                                         fileActionsExpanded = false
                                         navigatingForward = true
-                                        selectedEntry = null
+                                        clearSelection()
                                         directoryStack = directoryStack + it.path
                                     }
                                 },
@@ -517,8 +586,8 @@ fun FileManagementPage(
                                     dialogValue = entry.name
                                     pendingAction = PendingFileAction.Rename(entry)
                                 },
-                                onDelete = { entry -> pendingAction = PendingFileAction.Delete(entry) },
-                                onMove = { movingEntry = it; selectedEntry = null },
+                                onDelete = { entry -> pendingAction = PendingFileAction.Delete(listOf(entry)) },
+                                onMove = { movingEntries = listOf(it); clearSelection() },
                                 onDownload = { entry ->
                                     downloadEntry = entry
                                     downloadPicker.launch(entry.name)
@@ -527,7 +596,7 @@ fun FileManagementPage(
                         }
                     }
                 }
-                if (active != null && selectedEntry == null && movingEntry == null &&
+                if (active != null && selectedEntries.isEmpty() && movingEntries.isEmpty() &&
                     !operationBusy && !uploadProgress.running &&
                     (capabilities.contains("files.upload") || capabilities.contains("directories.create"))
                 ) {
@@ -589,10 +658,10 @@ fun FileManagementPage(
             title = { Text(when (action) {
                 PendingFileAction.CreateDirectory -> "新建目录"
                 is PendingFileAction.Rename -> "重命名"
-                is PendingFileAction.Delete -> "删除文件？"
+                is PendingFileAction.Delete -> if (action.entries.size == 1) "删除项目？" else "删除 ${action.entries.size} 个项目？"
             }) },
             text = {
-                if (delete) Text((action as PendingFileAction.Delete).entry.name)
+                if (delete) Text((action as PendingFileAction.Delete).entries.singleOrNull()?.name ?: "删除后无法恢复")
                 else OutlinedTextField(value = dialogValue, onValueChange = { dialogValue = it }, singleLine = true)
             },
             confirmButton = {
@@ -606,8 +675,9 @@ fun FileManagementPage(
                             when (action) {
                                 PendingFileAction.CreateDirectory -> DeviceSessions.createDirectory(directory ?: "/", dialogValue.trim())
                                 is PendingFileAction.Rename -> DeviceSessions.renameFile(action.entry.path, dialogValue.trim())
-                                is PendingFileAction.Delete -> DeviceSessions.deleteFile(action.entry.path)
+                                is PendingFileAction.Delete -> DeviceSessions.deleteFiles(action.entries.map { it.path })
                             }
+                            if (action is PendingFileAction.Delete) clearSelection()
                             refresh()
                         } catch (cause: Exception) {
                             error = DeviceSessions.describeOperationFailure(cause, "文件操作")
@@ -631,7 +701,7 @@ fun FileManagementPage(
 private sealed interface PendingFileAction {
     data object CreateDirectory : PendingFileAction
     data class Rename(val entry: SdkFileEntry) : PendingFileAction
-    data class Delete(val entry: SdkFileEntry) : PendingFileAction
+    data class Delete(val entries: List<SdkFileEntry>) : PendingFileAction
 }
 
 private fun isSameOrDescendant(sourcePath: String, destinationPath: String?): Boolean {

@@ -19,6 +19,7 @@ import uniffi.inkreaderlink_uniffi.SdkDeviceInfoField
 import uniffi.inkreaderlink_uniffi.SdkDeviceProfile
 import uniffi.inkreaderlink_uniffi.SdkFileLocation
 import uniffi.inkreaderlink_uniffi.SdkFileEntry
+import uniffi.inkreaderlink_uniffi.SdkFileDownload
 import uniffi.inkreaderlink_uniffi.SdkConflictPolicy
 import uniffi.inkreaderlink_uniffi.SdkUploadOptions
 import uniffi.inkreaderlink_uniffi.SdkUploadProgressObserver
@@ -148,9 +149,15 @@ object DeviceSessions {
 
     suspend fun deleteFile(path: String) = modify("files.delete") { it.delete(path) }
 
+    suspend fun deleteFiles(paths: List<String>) = modify("files.delete") { it.deleteFiles(paths) }
+
     suspend fun renameFile(path: String, newName: String) = modify("files.rename") { it.rename(path, newName) }
 
     suspend fun moveFile(path: String, destination: String) = modify("files.move") { it.moveFile(path, destination) }
+
+    suspend fun moveFiles(paths: List<String>, destination: String) = modify("files.move") {
+        it.moveFiles(paths, destination)
+    }
 
     suspend fun createDirectory(parent: String, name: String) = modify("directories.create") {
         it.createDirectory(parent, name)
@@ -158,6 +165,10 @@ object DeviceSessions {
 
     suspend fun downloadFile(path: String, destination: String) = modify("files.download") {
         it.download(path, destination)
+    }
+
+    suspend fun downloadFiles(files: List<SdkFileDownload>) = modify("files.download") {
+        it.downloadFiles(files)
     }
 
     suspend fun listWifiNetworks(): List<SdkWifiNetwork> = withContext(Dispatchers.IO) {
@@ -176,9 +187,19 @@ object DeviceSessions {
         withDeviceClient("fonts.list") { it.listFonts() }
     }
 
-    suspend fun uploadFont(context: Context, family: String, uri: Uri, fileName: String) =
+    suspend fun uploadFont(
+        context: Context,
+        family: String,
+        uri: Uri,
+        fileName: String,
+        overwrite: Boolean = false,
+        onProgress: ((ULong, ULong) -> Unit)? = null,
+    ) =
         withDeviceClient("fonts.upload") { sdkClient ->
                 val profile = mutableState.value.active?.profile ?: throw IOException("设备未连接")
+                if (onProgress != null && "fonts.upload.progress" !in profile.capabilities) {
+                    throw IOException("设备未声明字体上传进度支持")
+                }
                 val supportedExtensions = profile.fileFormats.fontUploadExtensions
                     .map { it.trim().removePrefix(".").lowercase(java.util.Locale.ROOT) }
                     .filter(String::isNotBlank)
@@ -200,11 +221,22 @@ object DeviceSessions {
                             source.copyTo(destination, 64 * 1024)
                         }
                     }
-                    sdkClient.uploadFont(
-                        family,
-                        temporary.absolutePath,
-                        fileName,
-                    )
+                    if (onProgress == null) {
+                        sdkClient.uploadFontWithOverwrite(family, temporary.absolutePath, fileName, overwrite)
+                    } else {
+                        val observer = object : SdkUploadProgressObserver {
+                            override fun onProgress(sentBytes: ULong, totalBytes: ULong) {
+                                onProgress(sentBytes, totalBytes)
+                            }
+                        }
+                        sdkClient.uploadFontWithOverwriteAndProgress(
+                            family,
+                            temporary.absolutePath,
+                            fileName,
+                            overwrite,
+                            observer,
+                        )
+                    }
                 } finally {
                     temporary.delete()
                 }

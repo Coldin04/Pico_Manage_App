@@ -48,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -360,7 +361,9 @@ internal fun SendPage(
         androidx.compose.runtime.mutableStateOf<List<BookUploadFile>>(emptyList())
     }
     var fontFamilyName by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
-    var showFontUploadDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var fontUploadRunning by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var fontProgress by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<ULong, ULong>?>(null) }
+    var pendingFontOverwrite by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<BookUploadFile?>(null) }
     var operationError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var reconnectRequired by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var category by androidx.compose.runtime.remember {
@@ -387,6 +390,8 @@ internal fun SendPage(
         ?.filter(String::isNotBlank)
         .orEmpty()
     val canUploadFonts = activeDevice?.profile?.let { "fonts.upload" in it.capabilities } == true && fontExtensions.isNotEmpty()
+    val fontFamilyRequired = activeDevice?.profile?.capabilities?.contains("fonts.upload.family") == true
+    val fontProgressSupported = activeDevice?.profile?.capabilities?.contains("fonts.upload.progress") == true
 
     androidx.compose.runtime.LaunchedEffect(incomingEvent?.id, activeDevice?.saved?.id) {
         val incomingFiles = incomingEvent?.value.orEmpty()
@@ -412,6 +417,35 @@ internal fun SendPage(
             uniffi.inkreaderlink_uniffi.SdkFileLocation.Root
         }
         BookUploadQueue.start(context, review.accepted, location, review.unsupportedNames)
+    }
+
+    fun uploadFont(file: BookUploadFile, overwrite: Boolean) {
+        fontUploadRunning = true
+        fontProgress = null
+        operationError = null
+        scope.launch {
+            try {
+                DeviceSessions.uploadFont(
+                    context,
+                    fontFamilyName.trim(),
+                    file.uri,
+                    file.name,
+                    overwrite = overwrite,
+                    onProgress = if (fontProgressSupported) { sent, total -> fontProgress = sent to total } else null,
+                )
+                pendingFontOverwrite = null
+                android.widget.Toast.makeText(context, "字体上传完成", android.widget.Toast.LENGTH_LONG).show()
+            } catch (cause: Exception) {
+                if (!overwrite && cause is uniffi.inkreaderlink_uniffi.SdkOperationException.Conflict) {
+                    pendingFontOverwrite = file
+                } else {
+                    operationError = managerError(cause)
+                    reconnectRequired = DeviceSessions.isConnectionFailure(cause)
+                }
+            } finally {
+                fontUploadRunning = false
+            }
+        }
     }
 
     val chooseBooks = rememberBookFilePicker { files ->
@@ -462,7 +496,7 @@ internal fun SendPage(
                         else -> "${selectedFiles.size} 个文件"
                     },
                     modifier = Modifier.fillMaxWidth().clickable(
-                        enabled = !uploadProgress.running,
+                        enabled = !uploadProgress.running && !fontUploadRunning,
                         onClick = chooseBooks,
                     ).padding(16.dp),
                 )
@@ -478,7 +512,7 @@ internal fun SendPage(
                             SegmentedButton(
                                 selected = category == choice,
                                 onClick = { category = choice },
-                                enabled = when (choice) {
+                                enabled = !fontUploadRunning && when (choice) {
                                     SendFileCategory.BOOK -> true
                                     SendFileCategory.FONT -> true
                                     SendFileCategory.FIRMWARE -> true
@@ -487,6 +521,17 @@ internal fun SendPage(
                                 label = { Text(choice.label) },
                             )
                         }
+                    }
+                    if (category == SendFileCategory.FONT && canUploadFonts) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = fontFamilyName,
+                            onValueChange = { fontFamilyName = it },
+                            label = { Text(if (fontFamilyRequired) "字体族" else "字体族（可选）") },
+                            singleLine = true,
+                            enabled = !fontUploadRunning,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     if (category == SendFileCategory.BOOK) {
                         val warning = when {
@@ -525,7 +570,23 @@ internal fun SendPage(
                 }
         }
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-            if (category != SendFileCategory.FIRMWARE || uploadProgress.running) {
+            if (fontUploadRunning) {
+                val progress = fontProgress?.takeIf { it.second > 0uL }
+                if (progress == null) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                } else {
+                    LinearProgressIndicator(
+                        progress = { (progress.first.toDouble() / progress.second.toDouble()).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    )
+                }
+                val progressLabel = when {
+                    progress == null -> "正在上传字体"
+                    progress.first >= progress.second -> "设备正在校验并保存字体"
+                    else -> "正在上传字体 · ${(progress.first.toDouble() * 100 / progress.second.toDouble()).toInt()}%"
+                }
+                Text(progressLabel, modifier = Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodyMedium)
+            } else if (category != SendFileCategory.FIRMWARE || uploadProgress.running) {
                 BookUploadStatus(Modifier.fillMaxWidth().padding(bottom = 8.dp))
             }
             Button(
@@ -540,15 +601,15 @@ internal fun SendPage(
                             }
                         }
                         SendFileCategory.FONT -> {
-                            fontFamilyName = ""
-                            showFontUploadDialog = true
+                            val selected = selectedFiles.singleOrNull() ?: return@Button
+                            uploadFont(selected, overwrite = false)
                         }
                         SendFileCategory.FIRMWARE -> selectedFiles.singleOrNull()?.let { onFirmwareClick(it) }
                     }
                 },
-                enabled = selectedFiles.isNotEmpty() && !uploadProgress.running && when (category) {
+                enabled = selectedFiles.isNotEmpty() && !uploadProgress.running && !fontUploadRunning && when (category) {
                     SendFileCategory.BOOK -> activeDevice?.profile?.capabilities?.contains("files.upload") == true
-                    SendFileCategory.FONT -> fontCandidate
+                    SendFileCategory.FONT -> fontCandidate && (!fontFamilyRequired || fontFamilyName.isNotBlank())
                     SendFileCategory.FIRMWARE -> selectedFiles.size == 1
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -575,37 +636,26 @@ internal fun SendPage(
             onContinue = { startUpload(review) },
         )
     }
-    if (showFontUploadDialog) {
+    pendingFontOverwrite?.let { file ->
         AlertDialog(
-            onDismissRequest = { if (!uploadProgress.running) showFontUploadDialog = false },
-            title = { Text("上传字体") },
-            text = {
-                OutlinedTextField(
-                    value = fontFamilyName,
-                    onValueChange = { fontFamilyName = it },
-                    label = { Text("字体族") },
-                    singleLine = true,
-                )
-            },
+            onDismissRequest = { pendingFontOverwrite = null },
+            title = { Text("替换现有字体？") },
+            text = { Text(file.name) },
             confirmButton = {
                 TextButton(
-                    enabled = fontCandidate && fontFamilyName.isNotBlank() && !uploadProgress.running,
+                    enabled = !fontUploadRunning,
                     onClick = {
-                        val selected = selectedFiles.singleOrNull() ?: return@TextButton
-                        showFontUploadDialog = false
-                        scope.launch {
-                            try {
-                                DeviceSessions.uploadFont(context, fontFamilyName.trim(), selected.uri, selected.name)
-                                android.widget.Toast.makeText(context, "字体上传完成", android.widget.Toast.LENGTH_LONG).show()
-                            } catch (cause: Exception) {
-                                operationError = managerError(cause)
-                                reconnectRequired = DeviceSessions.isConnectionFailure(cause)
-                            }
-                        }
+                        pendingFontOverwrite = null
+                        uploadFont(file, overwrite = true)
                     },
-                ) { Text("上传") }
+                ) { Text("替换") }
             },
-            dismissButton = { TextButton(onClick = { showFontUploadDialog = false }) { Text("取消") } },
+            dismissButton = {
+                TextButton(
+                    enabled = !fontUploadRunning,
+                    onClick = { pendingFontOverwrite = null },
+                ) { Text("取消") }
+            },
         )
     }
     OperationErrorDialog(
