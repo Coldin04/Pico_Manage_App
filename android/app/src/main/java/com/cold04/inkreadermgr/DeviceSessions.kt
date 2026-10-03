@@ -27,6 +27,7 @@ import uniffi.inkreaderlink_uniffi.SdkOperationException
 import uniffi.inkreaderlink_uniffi.SdkWifiCredential
 import uniffi.inkreaderlink_uniffi.SdkWifiNetwork
 import uniffi.inkreaderlink_uniffi.SdkFontCatalog
+import uniffi.inkreaderlink_uniffi.SdkWallpaperUploadResult
 import uniffi.inkreaderlink_uniffi.SdkOpdsCredential
 import uniffi.inkreaderlink_uniffi.SdkOpdsServer
 import uniffi.inkreaderlink_uniffi.SdkSettingsSnapshot
@@ -287,6 +288,55 @@ object DeviceSessions {
 
     suspend fun deleteFontFamily(family: String) = modify("fonts.delete") {
         it.deleteFontFamily(family)
+    }
+
+    suspend fun listWallpapers(): List<SdkFileEntry> = withContext(Dispatchers.IO) {
+        withDeviceClient("wallpapers.manage") { it.listWallpapers() }
+    }
+
+    suspend fun uploadWallpaper(
+        context: Context,
+        uri: Uri,
+        fileName: String,
+        overwrite: Boolean,
+        applyToLockScreen: Boolean,
+    ): SdkWallpaperUploadResult = withDeviceClient("wallpapers.upload") { sdkClient ->
+        val profile = mutableState.value.active?.profile ?: throw IOException("设备未连接")
+        val supportedExtensions = profile.fileFormats.wallpaperUploadExtensions
+            .map { it.trim().removePrefix(".").lowercase(java.util.Locale.ROOT) }
+            .filter(String::isNotBlank)
+            .toSet()
+        val extension = fileName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        if (extension !in supportedExtensions) {
+            val accepted = supportedExtensions.joinToString { ".$it" }
+            throw IOException(
+                if (accepted.isEmpty()) "设备未声明支持的壁纸图片类型"
+                else "设备支持的壁纸图片类型：$accepted",
+            )
+        }
+
+        val temporary = File.createTempFile("inkreader-wallpaper-", ".$extension", context.cacheDir)
+        try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IOException("无法读取壁纸图片")
+            input.buffered().use { source ->
+                temporary.outputStream().buffered().use { destination ->
+                    source.copyTo(destination, 64 * 1024)
+                }
+            }
+            sdkClient.uploadWallpaper(
+                temporary.absolutePath,
+                fileName,
+                overwrite,
+                applyToLockScreen,
+            )
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    suspend fun deleteWallpaper(fileName: String) = modify("wallpapers.delete") {
+        it.deleteWallpaper(fileName)
     }
 
     suspend fun listOpdsServers(): List<SdkOpdsServer> = withContext(Dispatchers.IO) {

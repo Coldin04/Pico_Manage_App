@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Wifi
@@ -75,11 +76,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.lifecycleScope
 import com.cold04.inkreadermgr.ui.theme.PicoManageTheme
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private var automaticUpdateCheckRunning = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DeviceSessions.initialize(applicationContext)
@@ -95,6 +99,8 @@ class MainActivity : ComponentActivity() {
                     onDeviceInfoClick = { startActivity(Intent(this, DeviceInformationActivity::class.java)) },
                     onFontsClick = { startActivity(Intent(this, FontManagementActivity::class.java)) },
                     onOpdsClick = { startActivity(Intent(this, OpdsManagementActivity::class.java)) },
+                    onSoftwareSettingsClick = { startActivity(Intent(this, SoftwareSettingsActivity::class.java)) },
+                    onWallpapersClick = { startActivity(Intent(this, WallpaperManagementActivity::class.java)) },
                     onFirmwareClick = { file ->
                         startActivity(Intent(this, FirmwareUpdateActivity::class.java).apply {
                             if (file != null) {
@@ -105,6 +111,44 @@ class MainActivity : ComponentActivity() {
                         })
                     },
                 )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppUpdateInstaller.clearCacheIfInstalled(this)
+        if (automaticUpdateCheckRunning) return
+
+        val preferences = getSharedPreferences("app_update_schedule", MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastCheck = preferences.getLong("last_check_at", 0L)
+        if (now - lastCheck < BuildConfig.APP_UPDATE_CHECK_INTERVAL_MILLIS) return
+
+        preferences.edit().putLong("last_check_at", now).apply()
+        automaticUpdateCheckRunning = true
+        lifecycleScope.launch {
+            try {
+                val includePreviews = getSharedPreferences("software_settings", MODE_PRIVATE)
+                    .getBoolean("include_preview_releases", false)
+                val check = AppUpdateChecker.check(BuildConfig.VERSION_NAME, includePreviews)
+                if (check.updateAvailable) {
+                    val update = check.latestRelease ?: return@launch
+                    startActivity(Intent(this@MainActivity, AppUpdateActivity::class.java).apply {
+                        putExtra(AppUpdateActivity.EXTRA_AUTOMATIC, true)
+                        putExtra(AppUpdateActivity.EXTRA_VERSION, update.versionName)
+                        putExtra(AppUpdateActivity.EXTRA_RELEASE_PAGE, update.releasePage)
+                        putExtra(AppUpdateActivity.EXTRA_RELEASE_NOTES, update.notes)
+                        putExtra(AppUpdateActivity.EXTRA_APK_URL, update.apkDownloadUrl)
+                        putExtra(AppUpdateActivity.EXTRA_APK_SIZE, update.apkSizeBytes ?: 0L)
+                        putExtra(AppUpdateActivity.EXTRA_APK_ARCHITECTURE, update.apkArchitecture)
+                        putExtra(AppUpdateActivity.EXTRA_APK_SHA256, update.apkSha256)
+                    })
+                }
+            } catch (_: Exception) {
+                // Background update checks are silent; the user can retry from Software Settings.
+            } finally {
+                automaticUpdateCheckRunning = false
             }
         }
     }
@@ -202,6 +246,8 @@ private fun MainShell(
     onDeviceInfoClick: () -> Unit,
     onFontsClick: () -> Unit,
     onOpdsClick: () -> Unit,
+    onSoftwareSettingsClick: () -> Unit,
+    onWallpapersClick: () -> Unit,
     onFirmwareClick: (BookUploadFile?) -> Unit,
 ) {
     val destinations = MainDestination.entries
@@ -245,6 +291,8 @@ private fun MainShell(
                         onDeviceInfoClick = onDeviceInfoClick,
                         onFontsClick = onFontsClick,
                         onOpdsClick = onOpdsClick,
+                        onSoftwareSettingsClick = onSoftwareSettingsClick,
+                        onWallpapersClick = onWallpapersClick,
                         onFirmwareClick = { onFirmwareClick(null) },
                     )
                 }
@@ -696,8 +744,9 @@ private fun SendSelectionContent(
 
 private data class FeatureEntry(
     val title: String,
-    val description: String,
+    val description: String? = null,
     val requiredCapabilities: Set<String> = emptySet(),
+    val anyOfCapabilities: Set<String> = emptySet(),
     val availableWithoutDevice: Boolean = false,
     val icon: @Composable () -> Unit,
     val onClick: () -> Unit,
@@ -711,6 +760,8 @@ private fun FeatureListPage(
     onDeviceInfoClick: () -> Unit,
     onFontsClick: () -> Unit,
     onOpdsClick: () -> Unit,
+    onSoftwareSettingsClick: () -> Unit,
+    onWallpapersClick: () -> Unit,
     onFirmwareClick: () -> Unit,
 ) {
     val entries = listOf(
@@ -756,18 +807,33 @@ private fun FeatureListPage(
             icon = { Icon(Icons.Default.SystemUpdateAlt, contentDescription = null) },
             onClick = onFirmwareClick,
         ),
+        FeatureEntry(
+            title = "壁纸管理",
+            description = "查看和上传设备壁纸",
+            anyOfCapabilities = setOf("wallpapers.upload", "wallpapers.manage"),
+            icon = { Icon(Icons.Default.Image, contentDescription = null) },
+            onClick = onWallpapersClick,
+        ),
+        FeatureEntry(
+            title = "软件设置",
+            availableWithoutDevice = true,
+            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            onClick = onSoftwareSettingsClick,
+        ),
     )
     val declaredCapabilities = activeDevice?.profile?.capabilities?.toSet().orEmpty()
     val visibleEntries = entries.filter { entry ->
         entry.availableWithoutDevice ||
-            (activeDevice != null && declaredCapabilities.containsAll(entry.requiredCapabilities))
+            (activeDevice != null &&
+                declaredCapabilities.containsAll(entry.requiredCapabilities) &&
+                (entry.anyOfCapabilities.isEmpty() || declaredCapabilities.any(entry.anyOfCapabilities::contains)))
     }
 
     LazyColumn {
         items(visibleEntries) { entry ->
             androidx.compose.material3.ListItem(
                 headlineContent = { Text(entry.title) },
-                supportingContent = { Text(entry.description) },
+                supportingContent = entry.description?.let { description -> { Text(description) } },
                 leadingContent = entry.icon,
                 modifier = Modifier.fillMaxWidth().clickable(onClick = entry.onClick),
             )
@@ -831,6 +897,8 @@ private fun PicoManagerPreview() {
             onDeviceInfoClick = {},
             onFontsClick = {},
             onOpdsClick = {},
+            onSoftwareSettingsClick = {},
+            onWallpapersClick = {},
             onFirmwareClick = { _ -> },
         )
     }

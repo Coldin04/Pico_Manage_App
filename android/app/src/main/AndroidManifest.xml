@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -15,6 +16,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.PicoManage">
+        <receiver
+            android:name=".AppInstallStatusReceiver"
+            android:exported="false" />
         <activity
             android:name=".ScanActivity"
             android:exported="false" />
@@ -47,6 +51,15 @@
             android:exported="false" />
         <activity
             android:name=".FirmwareUpdateActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SoftwareSettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".AppUpdateActivity"
+            android:exported="false" />
+        <activity
+            android:name=".WallpaperManagementActivity"
             android:exported="false" />
         <activity
             android:name=".MainActivity"

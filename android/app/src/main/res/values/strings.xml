@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Pico Manage</string>
+    <string name="app_name">Pico Manager</string>
     <string name="push_to_reader">推送到阅读器</string>
 </resources>
