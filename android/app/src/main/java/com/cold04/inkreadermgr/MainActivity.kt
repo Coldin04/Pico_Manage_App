@@ -482,7 +482,7 @@ internal fun SendPage(
                 SendSelectionContent(
                     icon = Icons.Default.Smartphone,
                     title = "设备",
-                    value = activeDevice?.saved?.address ?: "连接设备",
+                    value = activeDevice?.saved?.let { DeviceSessions.addressFor(it) } ?: "连接设备",
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onDevicesClick).padding(16.dp),
                 )
                 Spacer(Modifier.height(20.dp))

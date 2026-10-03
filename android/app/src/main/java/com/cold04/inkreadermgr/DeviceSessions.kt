@@ -31,13 +31,18 @@ import uniffi.inkreaderlink_uniffi.SdkOpdsCredential
 import uniffi.inkreaderlink_uniffi.SdkOpdsServer
 import uniffi.inkreaderlink_uniffi.SdkSettingsSnapshot
 import uniffi.inkreaderlink_uniffi.SdkSettingChange
+import uniffi.inkreaderlink_uniffi.BooksendSdk
+import uniffi.inkreaderlink_uniffi.SdkConnectionFieldKind
+import uniffi.inkreaderlink_uniffi.SdkConnectionParameter
+import uniffi.inkreaderlink_uniffi.SdkConnectionValue
+import uniffi.inkreaderlink_uniffi.SdkSupportedDevice
 import java.util.UUID
 
-data class SavedDevice(val id: String, val deviceType: String, val address: String)
+data class SavedDevice(val id: String, val deviceType: String, val connectionValues: Map<String, String>)
 data class ActiveDevice(val saved: SavedDevice, val profile: SdkDeviceProfile)
 data class DeviceState(val saved: List<SavedDevice> = emptyList(), val active: ActiveDevice? = null)
 
-/** Saved addresses are persistent; the one live SDK client exists only in this process. */
+/** Saved connection fields are persistent; the live SDK client exists only in this process. */
 object DeviceSessions {
     private const val PREFS_NAME = "devices"
     private const val SAVED_KEY = "saved"
@@ -46,6 +51,15 @@ object DeviceSessions {
     val state = mutableState.asStateFlow()
     private var appContext: Context? = null
     private var client: SdkDeviceClient? = null
+    private val supportedDevices: List<SdkSupportedDevice> by lazy { BooksendSdk().use { it.supportedDevices() } }
+
+    fun supportedDevices(): List<SdkSupportedDevice> = supportedDevices
+
+    fun addressFor(saved: SavedDevice): String {
+        val addressKey = supportedDevices.firstOrNull { it.deviceType == saved.deviceType }
+            ?.connectionFields?.firstOrNull { it.kind == SdkConnectionFieldKind.Address }?.key
+        return addressKey?.let(saved.connectionValues::get).orEmpty()
+    }
 
     @Synchronized
     fun initialize(context: Context) {
@@ -56,7 +70,16 @@ object DeviceSessions {
             val array = JSONArray(data)
             List(array.length()) { index ->
                 val item = array.getJSONObject(index)
-                SavedDevice(item.getString("id"), item.getString("deviceType"), item.getString("address"))
+                val values = item.optJSONObject("connectionValues")?.let { savedValues ->
+                    buildMap {
+                        val keys = savedValues.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            put(key, savedValues.optString(key))
+                        }
+                    }
+                } ?: mapOf("address" to item.optString("address", ""))
+                SavedDevice(item.getString("id"), item.getString("deviceType"), values)
             }
         } catch (_: Exception) {
             emptyList()
@@ -64,11 +87,10 @@ object DeviceSessions {
         mutableState.value = DeviceState(saved = saved)
     }
 
-    suspend fun save(deviceType: String, address: String): SavedDevice = withContext(Dispatchers.IO) {
-        val target = address.trim()
-        require(target.isNotEmpty()) { "请输入设备地址" }
+    suspend fun save(deviceType: String, values: Map<String, String>): SavedDevice = withContext(Dispatchers.IO) {
+        val target = normalizeConnectionValues(deviceType, values)
         mutex.withLock {
-            mutableState.value.saved.firstOrNull { it.deviceType == deviceType && it.address == target }?.let {
+            mutableState.value.saved.firstOrNull { it.deviceType == deviceType && it.connectionValues == target }?.let {
                 return@withLock it
             }
             val saved = SavedDevice(UUID.randomUUID().toString(), deviceType, target)
@@ -79,18 +101,17 @@ object DeviceSessions {
         }
     }
 
-    suspend fun update(id: String, deviceType: String, address: String): SavedDevice = withContext(Dispatchers.IO) {
-        val target = address.trim()
-        require(target.isNotEmpty()) { "请输入设备地址" }
+    suspend fun update(id: String, deviceType: String, values: Map<String, String>): SavedDevice = withContext(Dispatchers.IO) {
+        val target = normalizeConnectionValues(deviceType, values)
         mutex.withLock {
             val previous = mutableState.value.saved.firstOrNull { it.id == id }
                 ?: throw IllegalArgumentException("设备不存在")
-            if (previous.deviceType == deviceType && previous.address == target) return@withLock previous
+            if (previous.deviceType == deviceType && previous.connectionValues == target) return@withLock previous
             require(mutableState.value.saved.none {
-                it.id != id && it.deviceType == deviceType && it.address == target
+                it.id != id && it.deviceType == deviceType && it.connectionValues == target
             }) { "该设备已保存" }
 
-            val updatedDevice = previous.copy(deviceType = deviceType, address = target)
+            val updatedDevice = previous.copy(deviceType = deviceType, connectionValues = target)
             val updated = mutableState.value.saved.map { if (it.id == id) updatedDevice else it }
             persist(updated)
             val wasActive = mutableState.value.active?.saved?.id == id
@@ -117,7 +138,29 @@ object DeviceSessions {
             client = null
             mutableState.value = mutableState.value.copy(active = null)
 
-            val next = SdkDeviceClient.connectAndVerify(saved.deviceType, saved.address, 5_000uL)
+            val definition = supportedDevices.firstOrNull { it.deviceType == saved.deviceType }
+                ?: throw IllegalArgumentException("SDK 未声明此设备类型")
+            val parameters = definition.connectionFields.mapNotNull { field ->
+                val value = saved.connectionValues[field.key]
+                    ?: (if (field.kind == SdkConnectionFieldKind.Toggle) "false" else null)
+                    ?: return@mapNotNull null
+                val typedValue = when (val kind = field.kind) {
+                    SdkConnectionFieldKind.Text -> SdkConnectionValue.Text(value)
+                    SdkConnectionFieldKind.Address -> SdkConnectionValue.Address(value)
+                    is SdkConnectionFieldKind.Choice -> SdkConnectionValue.Choice(
+                        value.toUIntOrNull() ?: throw IllegalArgumentException("请选择${field.label}"),
+                    )
+                    SdkConnectionFieldKind.Toggle -> SdkConnectionValue.Toggle(
+                        value.toBooleanStrictOrNull() ?: throw IllegalArgumentException("${field.label}的值无效"),
+                    )
+                }
+                SdkConnectionParameter(field.key, typedValue)
+            }
+            val next = SdkDeviceClient.connectAndVerifyWithParameters(
+                saved.deviceType,
+                parameters,
+                5_000uL,
+            )
             try {
                 val profile = next.profile()
                 val active = ActiveDevice(saved, profile)
@@ -444,10 +487,46 @@ object DeviceSessions {
     private fun persist(savedDevices: List<SavedDevice>) {
         val array = JSONArray()
         savedDevices.forEach { saved ->
-            array.put(JSONObject().put("id", saved.id).put("deviceType", saved.deviceType).put("address", saved.address))
+            val values = JSONObject()
+            saved.connectionValues.forEach { (key, value) -> values.put(key, value) }
+            array.put(
+                JSONObject()
+                    .put("id", saved.id)
+                    .put("deviceType", saved.deviceType)
+                    .put("address", addressFor(saved))
+                    .put("connectionValues", values),
+            )
         }
         val stored = checkNotNull(appContext).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(SAVED_KEY, array.toString()).commit()
         if (!stored) throw IOException("无法保存设备列表")
+    }
+
+    private fun normalizeConnectionValues(deviceType: String, values: Map<String, String>): Map<String, String> {
+        val definition = supportedDevices.firstOrNull { it.deviceType == deviceType }
+            ?: throw IllegalArgumentException("SDK 未声明此设备类型")
+        val declaredFields = definition.connectionFields.associateBy { it.key }
+        require(values.keys.all(declaredFields::containsKey)) { "包含 SDK 未声明的连接字段" }
+        val normalized = values.mapValues { (_, value) -> value.trim() }.toMutableMap()
+        definition.connectionFields.forEach { field ->
+            if (field.kind == SdkConnectionFieldKind.Toggle && field.key !in normalized) {
+                normalized[field.key] = "false"
+            }
+            val value = normalized[field.key]
+            if (field.required && field.kind != SdkConnectionFieldKind.Toggle) {
+                require(!value.isNullOrBlank()) { "请输入${field.label}" }
+            }
+            when (val kind = field.kind) {
+                is SdkConnectionFieldKind.Choice -> value?.let {
+                    val index = it.toIntOrNull()
+                    require(index != null && index in kind.options.indices) { "请选择${field.label}" }
+                }
+                SdkConnectionFieldKind.Toggle -> value?.let {
+                    require(it.toBooleanStrictOrNull() != null) { "${field.label}的值无效" }
+                }
+                SdkConnectionFieldKind.Text, SdkConnectionFieldKind.Address -> Unit
+            }
+        }
+        return normalized
     }
 }

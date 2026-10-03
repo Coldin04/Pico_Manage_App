@@ -22,6 +22,9 @@
             android:name=".DeviceActivity"
             android:exported="false" />
         <activity
+            android:name=".DeviceConnectionActivity"
+            android:exported="false" />
+        <activity
             android:name=".WifiManagementActivity"
             android:exported="false" />
         <activity

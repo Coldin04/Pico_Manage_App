@@ -17,6 +17,12 @@ Pico Manager 是一款用于管理可供 Pico、Crosspoint 等第三方固件使
 项目名称、Logo、图标和官方展示素材不在 GPLv3 的授权范围内，详见 [TRADEMARKS.md](TRADEMARKS.md)。
 
 
+## 设备连接
+
+Android 的设备列表从 InkReaderLink SDK 获取支持的固件和显示名称。添加或编辑设备会打开独立配置 Activity，按 SDK 返回的连接字段动态显示文本输入、下拉选择或开关；右上角链接按钮会保存配置并发起连接。地址字段保留相机扫码和相册二维码识别，扫码结果写回 SDK 声明的地址字段。
+
+设备连接字段随设备记录保存。升级后首次读取旧记录时，会把原有地址迁移到 `address` 字段。
+
 ## Android release 签名
 
 Android `applicationId` 和 `namespace` 为 `com.cold04.inkreadermgr`。旧预览版使用不同 ID，不能原位升级。
