@@ -8,3 +8,6 @@ android/app/release/
 
 # Locally supplied SDK binaries
 android/app/src/main/jniLibs/**/*.so
+docs/research/
+docs/research/crossmux-native-flashing-feasibility.md
+docs/research/read-pico-flashing-feasibility.md
