@@ -27,34 +27,56 @@ jobs:
 
       - uses: android-actions/setup-android@v4
 
-      - name: Install Android SDK packages
+      - name: Resolve SDK dependency source
+        id: sdk-version
+        shell: bash
         run: |
-          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;27.2.12479018"
+          sdk_version="$(sed -n 's/^inkreaderlinkSdkVersion=//p' android/gradle.properties | tail -n 1)"
+          [[ -n "$sdk_version" ]] || {
+            echo "inkreaderlinkSdkVersion is missing from android/gradle.properties." >&2
+            exit 1
+          }
+          if [[ "$sdk_version" =~ ^git\.([0-9a-f]{40})$ ]]; then
+            echo "source=git" >> "$GITHUB_OUTPUT"
+            echo "commit=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          elif [[ "$sdk_version" == git.* ]]; then
+            echo "Git SDK versions must use git.<full 40-character lowercase commit SHA>." >&2
+            exit 1
+          elif [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "source=maven" >> "$GITHUB_OUTPUT"
+            echo "commit=" >> "$GITHUB_OUTPUT"
+          elif [[ "$sdk_version" == local ]]; then
+            echo "The local SDK version is for a developer's mavenLocal and cannot be used by GitHub checks." >&2
+            exit 1
+          else
+            echo "Unsupported InkReaderLink version: $sdk_version" >&2
+            exit 1
+          fi
+          echo "version=$sdk_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Install NDK for source-built SDK
+        if: steps.sdk-version.outputs.source == 'git'
+        run: |
+          sdkmanager "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.sdk-version.outputs.source == 'git'
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.sdk-version.outputs.source == 'git'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
 
-      - name: Resolve SDK source version
-        id: sdk-version
-        shell: bash
-        run: |
-          sdk_version="$(sed -n 's/^inkreaderlinkSdkVersion=//p' android/gradle.properties | tail -n 1)"
-          [[ "$sdk_version" =~ ^git\.([0-9a-f]{40})$ ]] || {
-            echo "Commit checks require inkreaderlinkSdkVersion=git.<full 40-character lowercase commit SHA>." >&2
-            exit 1
-          }
-          echo "version=$sdk_version" >> "$GITHUB_OUTPUT"
-          echo "commit=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-
       - name: Cache source-built SDK AAR
+        if: steps.sdk-version.outputs.source == 'git'
         id: sdk-cache
         uses: actions/cache@v4
         with:
@@ -62,13 +84,13 @@ jobs:
           key: inkreaderlink-sdk-aar-v1-ndk27.2-uniffi0.32.2-${{ steps.sdk-version.outputs.commit }}
 
       - name: Install Rust Android tools
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        if: steps.sdk-version.outputs.source == 'git' && steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           cargo install cargo-ndk --locked
           cargo install uniffi --version 0.32.2 --features cli --bin uniffi-bindgen --locked
 
       - name: Build SDK from its pinned commit
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        if: steps.sdk-version.outputs.source == 'git' && steps.sdk-cache.outputs.cache-hit != 'true'
         env:
           INKREADERLINK_SDK_REPOSITORY: ${{ vars.INKREADERLINK_SDK_REPOSITORY || 'https://github.com/Coldin04/InkReaderLink.git' }}
         run: ./scripts/install-sdk-from-git.sh "${{ steps.sdk-version.outputs.version }}"

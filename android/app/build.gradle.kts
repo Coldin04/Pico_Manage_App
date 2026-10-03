@@ -1,3 +1,4 @@
+import java.time.Instant
 import java.util.Properties
 
 plugins {
@@ -6,7 +7,11 @@ plugins {
 }
 
 val inkreaderlinkSdkVersion = providers.gradleProperty("inkreaderlinkSdkVersion").get()
+val appUpdateCheckIntervalDays = providers.gradleProperty("appUpdateCheckIntervalDays").get().toLongOrNull()
+    ?.takeIf { it in 1L..36_500L }
+    ?: error("appUpdateCheckIntervalDays must be an integer from 1 to 36500")
 val debugSigningConfigName = providers.gradleProperty("debugSigningConfig").getOrElse("release")
+val buildTime = Instant.now().toString()
 
 if (inkreaderlinkSdkVersion == "local") {
     configurations.configureEach {
@@ -32,8 +37,11 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = System.getenv("APP_VERSION_CODE")?.toInt() ?: 1
-        versionName = System.getenv("APP_VERSION_NAME") ?: "1.0"
+        versionName = System.getenv("APP_VERSION_NAME") ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "INKREADERLINK_SDK_VERSION", "\"$inkreaderlinkSdkVersion\"")
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+        buildConfigField("long", "APP_UPDATE_CHECK_INTERVAL_MILLIS", "${appUpdateCheckIntervalDays * 24L * 60L * 60L * 1000L}L")
     }
 
     splits {
@@ -90,6 +98,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -98,6 +107,7 @@ dependencies {
         isChanging = inkreaderlinkSdkVersion == "local"
     }
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+    implementation("io.noties.markwon:core:4.6.2")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
